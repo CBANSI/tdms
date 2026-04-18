@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TDMS Student Registration</title>
+  <link rel="stylesheet" href="styles.css?v=20260417b">
+</head>
+<body data-page="register">
+  <div class="login-screen">
+    <div class="login-card">
+      <button class="ghost-button theme-toggle theme-toggle-floating" data-theme-toggle type="button">Dark mode</button>
+      <section class="login-brand-panel">
+        <div class="login-panel-top">
+          <div class="brand">
+            <div class="brand-mark logo-frame is-fallback" data-logo-role="tdms">
+              <img alt="TDMS logo">
+              <span>TD</span>
+            </div>
+            <div>
+              <h1>TDMS</h1>
+              <p>Task and Deadline Management System</p>
+            </div>
+          </div>
+        </div>
+        <p class="eyebrow">Register</p>
+        <h2>Create account</h2>
+        <p class="hero-copy">Student account only.</p>
+        <div class="login-info-list">
+          <div class="mini-action-item">
+            <strong>Login</strong>
+            <span>Student ID or Gmail + password</span>
+          </div>
+          <div class="mini-action-item">
+            <strong>Google</strong>
+            <span>Optional for later</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="login-form-panel">
+        <div class="login-panel-top login-panel-top-right">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Student</p>
+              <h3>Create account</h3>
+            </div>
+          </div>
+          <div class="panel-emblem logo-frame is-fallback panel-emblem-diploma" data-logo-role="diploma">
+            <img alt="Diploma Program logo">
+            <span>DIP</span>
+          </div>
+        </div>
+
+        <section class="register-panel register-page-panel">
+          <form id="registerForm" class="form-grid" method="post" action="#">
+            <label>
+              Student ID
+              <input id="registerStudentId" name="registerStudentId" type="text" placeholder="e.g. 2026-001-00001" pattern="[0-9]{4}-[0-9]{3}-[0-9]{5}" required>
+            </label>
+            <label>
+              Full name
+              <input id="registerFullName" name="registerFullName" type="text" placeholder="Enter full student name" required>
+            </label>
+            <label>
+              Program
+              <input id="registerProgram" name="registerProgram" type="text" placeholder="e.g. Diploma in Information Technology" required>
+            </label>
+            <label>
+              Gmail / email
+              <input id="registerEmail" name="registerEmail" type="email" placeholder="student@gmail.com">
+            </label>
+            <label>
+              Password
+              <input id="registerPassword" name="registerPassword" type="password" placeholder="Create password" required>
+            </label>
+            <label>
+              Confirm password
+              <input id="registerPasswordConfirm" name="registerPasswordConfirm" type="password" placeholder="Repeat password" required>
+            </label>
+            <label class="full-width">
+              Contact number
+              <input id="registerContact" name="registerContact" type="text" placeholder="Optional contact number">
+            </label>
+            <div class="action-row full-width">
+              <button class="primary-button" type="submit">Create student account</button>
+              <a class="ghost-button" href="index.html">Back to login</a>
+            </div>
+          </form>
+
+          <p id="registerStatus" class="login-status">Fill in the form.</p>
+        </section>
+
+        <div class="login-divider"><span>or continue with</span></div>
+
+        <section class="google-panel">
+          <div class="panel-heading compact-heading">
+            <div>
+              <p class="eyebrow">Google</p>
+              <h3>Gmail</h3>
+            </div>
+          </div>
+          <div id="googleLoginMount" class="google-login-mount"></div>
+          <p id="googleLoginStatus" class="login-status">Google sign-in is for students only.</p>
+        </section>
+      </section>
+    </div>
+  </div>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">
+      <p>No records available yet.</p>
+    </div>
+  </template>
+
+  <script src="auth.js?v=20260403c"></script>
+  <script src="app.js?v=20260403c"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+api/config.php
+*_live.*
+api_index_live.php
+mysql_repair.ps1
+mysql_restore_innodb.ps1
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TDMS Login</title>
+  <link rel="stylesheet" href="styles.css?v=20260417b">
+</head>
+<body data-page="login">
+  <div id="loginScreen" class="login-screen">
+    <button class="ghost-button theme-toggle theme-toggle-floating" data-theme-toggle type="button">Dark mode</button>
+    <div class="login-card">
+      <section class="login-brand-panel">
+        <div class="login-panel-top">
+          <div class="brand">
+            <div class="brand-mark logo-frame is-fallback" data-logo-role="tdms">
+              <img alt="TDMS logo">
+              <span>TD</span>
+            </div>
+            <div>
+              <h1>TDMS</h1>
+              <p>Task and Deadline Management System</p>
+            </div>
+          </div>
+        </div>
+        <p class="eyebrow">Log in dashboard</p>
+        <h2>Log in Dashboard</h2>
+        <p class="hero-copy hero-copy-strong">TVET staff and diploma students</p>
+        <p class="hero-copy">Open the correct dashboard in one step.</p>
+          <div class="login-info-list">
+            <div class="mini-action-item">
+              <strong>Staff Access</strong>
+              <span>Post announcements, monitor missing documents, and ensure students stay updated with academic requirements.</span>
+            </div>
+            <div class="mini-action-item">
+              <strong>Student Access</strong>
+              <span>Create subject-based tasks, track deadlines, receive email reminders, and view all your requirements in a single dashboard.</span>
+            </div>
+          </div>
+      </section>
+
+      <section class="login-form-panel">
+        <div class="login-panel-top login-panel-top-right">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Account access</p>
+              <h3>Sign in</h3>
+            </div>
+          </div>
+          <div class="panel-emblem logo-frame is-fallback panel-emblem-diploma" data-logo-role="diploma">
+            <img alt="Diploma Program logo">
+            <span>DIP</span>
+          </div>
+        </div>
+
+        <form id="loginForm" class="form-grid login-form" method="post" action="#">
+          <input id="loginRole" name="loginRole" type="hidden" value="student">
+          <div class="login-form-row login-form-row-role">
+            <div class="login-form-cell login-form-cell-role">
+              <div class="role-switch" aria-label="Choose account type">
+                  <button class="role-switch-button is-active" type="button" data-login-role-tab="student">Student</button>
+                  <button class="role-switch-button" type="button" data-login-role-tab="staff">Staff</button>
+              </div>
+            </div>
+          </div>
+          <div class="login-form-row login-form-row-identifier">
+            <label class="login-form-cell login-form-cell-identifier">
+              <span class="login-field-label">Username / Student ID</span>
+              <input id="loginIdentifier" name="loginIdentifier" type="text" placeholder="Enter username or student ID" required>
+            </label>
+          </div>
+          <div class="login-form-row login-form-row-bottom">
+            <label class="login-form-cell login-form-cell-password">
+              <span class="login-field-label">Password</span>
+              <input id="loginSecret" name="loginSecret" type="password" placeholder="Enter password" required>
+            </label>
+            <div class="login-form-cell login-form-cell-submit">
+              <button class="primary-button" type="submit">Open dashboard</button>
+            </div>
+          </div>
+        </form>
+
+        <div id="studentAccessPanel" class="secondary-access" hidden>
+          <a class="ghost-button wide-button" href="register.html">Register as student</a>
+
+          <div class="login-divider"><span>or continue with</span></div>
+
+          <section class="google-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <p class="eyebrow">Google</p>
+                <h3>Gmail</h3>
+              </div>
+            </div>
+            <div id="googleLoginMount" class="google-login-mount"></div>
+            <p id="googleLoginStatus" class="login-status">Google sign-in is for students only.</p>
+          </section>
+        </div>
+
+        <p id="loginHelpText" class="login-help">Use your account.</p>
+      </section>
+    </div>
+  </div>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">
+      <p>No records available yet.</p>
+    </div>
+  </template>
+
+  <script src="auth.js?v=20260413b"></script>
+  <script src="app.js?v=20260406a"></script>
+</body>
+</html>
