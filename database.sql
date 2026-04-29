@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS students (
     full_name VARCHAR(150) NOT NULL,
     program VARCHAR(150) NOT NULL,
     contact VARCHAR(150) DEFAULT '',
+    email VARCHAR(190) DEFAULT '',
+    email_verified_at DATETIME NULL,
+    email_verification_token_hash VARCHAR(64) NULL,
+    email_verification_expires_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -42,6 +46,27 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME NULL,
     CONSTRAINT fk_task_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS email_reminder_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id INT NOT NULL,
+    reminder_day INT NOT NULL,
+    recipient_email VARCHAR(190) NOT NULL,
+    sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_task_reminder_email (task_id, reminder_day, recipient_email),
+    INDEX idx_email_reminder_sent_at (sent_at),
+    CONSTRAINT fk_email_reminder_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(200) NOT NULL,
+    message TEXT NOT NULL,
+    event_date DATE NOT NULL,
+    created_by_admin_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_announcement_admin FOREIGN KEY (created_by_admin_id) REFERENCES admins(id) ON DELETE SET NULL
 );
 
 INSERT INTO admins (username, password_hash, full_name)

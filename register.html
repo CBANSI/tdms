@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TDMS Student Registration</title>
+  <link rel="icon" type="image/png" href="assets/logos/tdms-logo.png.png">
   <link rel="stylesheet" href="styles.css?v=20260417b">
 </head>
 <body data-page="register">
@@ -55,32 +56,25 @@
         <section class="register-panel register-page-panel">
           <form id="registerForm" class="form-grid" method="post" action="#">
             <label>
-              Student ID
-              <input id="registerStudentId" name="registerStudentId" type="text" placeholder="e.g. 2026-001-00001" pattern="[0-9]{4}-[0-9]{3}-[0-9]{5}" required>
+              <input id="registerStudentId" name="registerStudentId" type="text" placeholder="Student ID" pattern="[0-9]{4}-[0-9]{3}-[0-9]{5}" aria-label="Student ID" required>
             </label>
             <label>
-              Full name
-              <input id="registerFullName" name="registerFullName" type="text" placeholder="Enter full student name" required>
+              <input id="registerFullName" name="registerFullName" type="text" placeholder="Full name" aria-label="Full name" required>
             </label>
             <label>
-              Program
-              <input id="registerProgram" name="registerProgram" type="text" placeholder="e.g. Diploma in Information Technology" required>
+              <input id="registerProgram" name="registerProgram" type="text" placeholder="Program" aria-label="Program" required>
             </label>
             <label>
-              Gmail / email
-              <input id="registerEmail" name="registerEmail" type="email" placeholder="student@gmail.com">
+              <input id="registerEmail" name="registerEmail" type="email" placeholder="Gmail / email" aria-label="Gmail or email" required>
             </label>
             <label>
-              Password
-              <input id="registerPassword" name="registerPassword" type="password" placeholder="Create password" required>
+              <input id="registerPassword" name="registerPassword" type="password" placeholder="Password" aria-label="Password" required>
             </label>
             <label>
-              Confirm password
-              <input id="registerPasswordConfirm" name="registerPasswordConfirm" type="password" placeholder="Repeat password" required>
+              <input id="registerPasswordConfirm" name="registerPasswordConfirm" type="password" placeholder="Confirm password" aria-label="Confirm password" required>
             </label>
             <label class="full-width">
-              Contact number
-              <input id="registerContact" name="registerContact" type="text" placeholder="Optional contact number">
+              <input id="registerContact" name="registerContact" type="text" placeholder="Contact number (optional)" aria-label="Contact number">
             </label>
             <div class="action-row full-width">
               <button class="primary-button" type="submit">Create student account</button>
@@ -88,20 +82,7 @@
             </div>
           </form>
 
-          <p id="registerStatus" class="login-status">Fill in the form.</p>
-        </section>
-
-        <div class="login-divider"><span>or continue with</span></div>
-
-        <section class="google-panel">
-          <div class="panel-heading compact-heading">
-            <div>
-              <p class="eyebrow">Google</p>
-              <h3>Gmail</h3>
-            </div>
-          </div>
-          <div id="googleLoginMount" class="google-login-mount"></div>
-          <p id="googleLoginStatus" class="login-status">Google sign-in is for students only.</p>
+          <p id="registerStatus" class="login-status" aria-live="polite"></p>
         </section>
       </section>
     </div>
@@ -113,7 +94,7 @@
     </div>
   </template>
 
-  <script src="auth.js?v=20260403c"></script>
-  <script src="app.js?v=20260403c"></script>
+  <script src="auth.js?v=20260419a"></script>
+  <script src="app.js?v=20260419a"></script>
 </body>
 </html>

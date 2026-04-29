@@ -148,11 +148,11 @@ body[data-page="login"] .login-screen::before {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
-    radial-gradient(circle at center, color-mix(in srgb, var(--accent-soft) 52%, transparent), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    radial-gradient(circle at center, color-mix(in srgb, var(--accent-soft) 28%, transparent), transparent 58%),
     url("assets/logos/homepage-asiancollege.png") center center / cover no-repeat;
-  opacity: 0.18;
-  filter: saturate(0.95) brightness(1.08);
+  opacity: 0.42;
+  filter: saturate(1.02) brightness(1.02);
   pointer-events: none;
   z-index: 0;
 }
@@ -162,8 +162,8 @@ body[data-page="login"] .login-screen::after {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--bg) 84%, transparent), transparent 14%, transparent 86%, color-mix(in srgb, var(--bg) 84%, transparent)),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, transparent), transparent 18%, transparent 82%, color-mix(in srgb, var(--bg) 88%, transparent));
+    linear-gradient(90deg, color-mix(in srgb, var(--bg) 46%, transparent), transparent 12%, transparent 88%, color-mix(in srgb, var(--bg) 46%, transparent)),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 54%, transparent), transparent 15%, transparent 85%, color-mix(in srgb, var(--bg) 54%, transparent));
   pointer-events: none;
   z-index: 0;
 }
@@ -175,6 +175,7 @@ body[data-page="login"] .login-screen::after {
   grid-template-columns: 1.15fr 0.85fr;
   gap: 20px;
   padding: 18px;
+  min-height: 700px;
   border-radius: 38px;
   background:
     linear-gradient(180deg, rgba(129, 210, 156, 0.06), rgba(129, 210, 156, 0)),
@@ -207,6 +208,10 @@ body[data-page="login"] .login-screen::after {
 
 .login-form-panel {
   padding: 32px 40px;
+  min-height: 660px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .login-form {
@@ -224,12 +229,10 @@ body[data-page="login"] .login-screen::after {
 }
 
 .login-form-row-role,
-.login-form-row-identifier {
+.login-form-row-identifier,
+.login-form-row-password,
+.login-form-row-submit {
   grid-template-columns: 1fr;
-}
-
-.login-form-row-bottom {
-  grid-template-columns: minmax(0, 1fr) 190px;
 }
 
 .login-form-cell {
@@ -426,6 +429,20 @@ body[data-page="login"] .login-brand-panel .brand > div:last-child {
 
 .sidebar .brand {
   align-items: center;
+}
+
+body[data-page="student"] .sidebar .brand {
+  justify-content: center;
+  min-height: auto;
+  padding: 6px 0 2px;
+}
+
+body[data-page="student"] .side-nav {
+  padding: 14px 16px;
+}
+
+body[data-page="student"] .side-nav .nav-label {
+  margin-bottom: 0;
 }
 
 .sidebar .brand-mark {
@@ -640,17 +657,31 @@ body[data-theme="dark"] .task-view-icon {
 }
 
 .theme-toggle-floating {
-  position: absolute;
-  top: 22px;
-  right: 26px;
-  z-index: 3;
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 40;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .dashboard-theme-floating {
   position: fixed;
-  top: 18px;
-  right: 18px;
-  z-index: 30;
+  top: 12px;
+  right: 12px;
+  z-index: 40;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1rem;
+  line-height: 1;
   box-shadow: var(--shadow);
 }
 
@@ -764,6 +795,15 @@ body[data-page="student"] .dashboard-theme-floating {
   align-items: center;
 }
 
+.student-topbar {
+  justify-content: flex-end;
+}
+
+.student-topbar-actions {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .user-chip {
   display: grid;
   gap: 2px;
@@ -783,6 +823,15 @@ body[data-page="student"] .dashboard-theme-floating {
 
 .user-chip strong {
   font-size: 0.92rem;
+}
+
+.student-summary-chip {
+  min-width: 240px;
+}
+
+.student-summary-chip span {
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 
 .hero-panel,
@@ -937,6 +986,11 @@ body[data-page="student"] .dashboard-theme-floating {
 
 .task-entry-panel {
   align-self: start;
+}
+
+.task-entry-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .primary-button {
@@ -1175,7 +1229,7 @@ body[data-page="login"] .login-form .primary-button {
 
 body[data-page="login"] .login-form-cell-submit {
   display: flex;
-  align-self: end;
+  width: 100%;
 }
 
 body[data-page="login"] .login-form-cell-role .role-switch {
@@ -1188,8 +1242,13 @@ body[data-page="login"] .login-form-cell-role {
   padding-left: 0;
 }
 
-body[data-page="login"] .login-form-row-bottom {
-  grid-template-columns: minmax(0, 1fr) 190px;
+body[data-page="login"] .login-form-row-password,
+body[data-page="login"] .login-form-row-submit {
+  grid-template-columns: 1fr;
+}
+
+body[data-page="login"] .login-form-row-submit {
+  margin-top: 4px;
 }
 
 body[data-page="login"] .secondary-access {
@@ -1209,8 +1268,8 @@ body[data-page="login"] .wide-button {
 }
 
 body[data-page="login"] .theme-toggle-floating {
-  top: 18px;
-  right: max(32px, calc((100vw - min(1120px, 100%)) / 2 - 18px));
+  top: 12px;
+  right: 12px;
   background: linear-gradient(145deg, rgba(123, 224, 164, 0.3), rgba(255, 255, 255, 0.1));
   color: #f5fff7;
   border-color: rgba(151, 235, 182, 0.28);
@@ -1231,6 +1290,33 @@ body[data-page="login"] .login-form select:invalid,
 body[data-page="login"] .login-status,
 body[data-page="login"] .google-login-mount + .login-status {
   color: #9daf9f;
+}
+
+body[data-page="login"] .login-card {
+  width: min(560px, 100%);
+  grid-template-columns: 1fr;
+  margin: 0 auto;
+}
+
+body[data-page="login"] .login-form-panel {
+  min-width: 0;
+}
+
+body[data-page="register"] .login-card {
+  width: min(940px, 100%);
+  grid-template-columns: 1fr;
+  margin: 0 auto;
+  min-height: auto;
+}
+
+body[data-page="register"] .login-brand-panel {
+  display: none;
+}
+
+body[data-page="register"] .login-form-panel {
+  width: 100%;
+  min-width: 0;
+  min-height: auto;
 }
 
 body[data-page="login"] .login-divider {
@@ -1261,9 +1347,9 @@ body[data-page="login"] code {
 
 body[data-theme="light"][data-page="login"] .login-screen {
   background:
-    radial-gradient(circle at top left, rgba(56, 168, 94, 0.14), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(110, 199, 146, 0.1), transparent 36%),
-    linear-gradient(180deg, #f2f7f3 0%, #e8efe9 100%);
+    radial-gradient(circle at top left, rgba(56, 168, 94, 0.09), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(110, 199, 146, 0.06), transparent 36%),
+    linear-gradient(180deg, rgba(242, 247, 243, 0.72) 0%, rgba(232, 239, 233, 0.68) 100%);
 }
 
 body[data-theme="light"][data-page="login"] .login-card {
@@ -1718,6 +1804,11 @@ th {
   color: #b24747;
 }
 
+.calendar-pill.announcement {
+  background: #e1f1e6;
+  color: #1a7a46;
+}
+
 .calendar-empty {
   color: var(--muted);
   font-size: 0.82rem;
@@ -2085,6 +2176,30 @@ th {
     align-items: stretch;
   }
 
+  body[data-page="student"] .student-topbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 12px;
+  }
+
+  body[data-page="student"] .student-topbar-actions {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+  }
+
+  body[data-page="student"] .student-topbar-actions .primary-button,
+  body[data-page="student"] .student-topbar-actions .ghost-button {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+    padding-inline: 14px;
+  }
+
   .top-tabs {
     display: grid;
     grid-template-columns: 1fr;
@@ -2096,6 +2211,45 @@ th {
 
   .task-view-strip .task-view-button {
     width: 100%;
+  }
+
+  body[data-page="student"] #studentSectionMenu,
+  body[data-page="admin"] #adminSectionMenu {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+    align-items: start;
+  }
+
+  body[data-page="student"] #studentSectionMenu .nav-label,
+  body[data-page="admin"] #adminSectionMenu .nav-label {
+    grid-column: 1 / -1;
+    margin-bottom: 2px;
+  }
+
+  body[data-page="student"] .task-view-button {
+    justify-content: center;
+    min-height: 62px;
+    padding: 10px;
+  }
+
+  body[data-page="student"] #studentSectionMenu .task-view-button,
+  body[data-page="admin"] #adminSectionMenu .task-view-button {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  body[data-page="student"] #studentSectionMenu .task-view-button > span:last-child,
+  body[data-page="admin"] #adminSectionMenu .task-view-button > span:last-child {
+    display: none;
+  }
+
+  body[data-page="student"] #studentSectionMenu .task-view-icon,
+  body[data-page="admin"] #adminSectionMenu .task-view-icon {
+    margin: 0;
+    width: 34px;
+    height: 34px;
   }
 
   .calendar-weekdays {
@@ -2164,6 +2318,10 @@ th {
 
 .register-page-panel {
   margin-bottom: 18px;
+}
+
+body[data-page="register"] .form-grid label {
+  gap: 0;
 }
 
 .compact-heading {

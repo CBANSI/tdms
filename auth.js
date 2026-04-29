@@ -5,8 +5,6 @@ const API_URL = window.location.protocol === "file:"
   : new URL("api/index.php", window.location.href).toString();
 
 const loginForm = document.getElementById("loginForm");
-const loginRole = document.getElementById("loginRole");
-const loginRoleTabs = [...document.querySelectorAll("[data-login-role-tab]")];
 const loginIdentifier = document.getElementById("loginIdentifier");
 const loginIdentifierLabel = document.querySelector(".login-form-cell-identifier .login-field-label");
 const loginSecret = document.getElementById("loginSecret");
@@ -75,7 +73,8 @@ function resolveSavedTheme() {
 function updateThemeButtons(theme) {
   themeToggleButtons.forEach((button) => {
     const nextTheme = theme === "dark" ? "light" : "dark";
-    button.textContent = nextTheme === "dark" ? "Dark mode" : "Light mode";
+    button.textContent = nextTheme === "dark" ? "☾" : "☀";
+    button.title = `Switch to ${nextTheme} mode`;
     button.setAttribute("aria-label", `Switch to ${nextTheme} mode`);
     button.setAttribute("aria-pressed", String(theme === "dark"));
   });
@@ -276,6 +275,34 @@ function setStatus(node, message, isError = false) {
   node.classList.toggle("is-error", isError);
 }
 
+function renderRegisterStatus(response) {
+  if (!registerStatus) return;
+
+  registerStatus.classList.remove("is-error");
+  registerStatus.innerHTML = "";
+
+  const message = document.createElement("span");
+  message.textContent = response.message || "Registration received. Please verify your email before logging in.";
+  registerStatus.appendChild(message);
+
+  if (response.emailDeliveryFailed && response.verificationUrl) {
+    const helper = document.createElement("span");
+    helper.style.display = "block";
+    helper.style.marginTop = "8px";
+    helper.textContent = "Localhost fallback: open this verification link to activate the student account.";
+    registerStatus.appendChild(helper);
+
+    const link = document.createElement("a");
+    link.href = response.verificationUrl;
+    link.textContent = "Verify account now";
+    link.style.display = "inline-block";
+    link.style.marginTop = "8px";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    registerStatus.appendChild(link);
+  }
+}
+
 function loadScript(src) {
   if (googleScriptPromise) return googleScriptPromise;
 
@@ -308,12 +335,6 @@ function loadScript(src) {
 
 async function ensureGoogleButton() {
   if ((PAGE !== "login" && PAGE !== "register") || !googleLoginMount || !googleLoginStatus) return;
-
-  if (PAGE === "login" && loginRole && loginRole.value !== "student") {
-    googleLoginMount.innerHTML = "";
-    setStatus(googleLoginStatus, "Google sign-in is for students only.");
-    return;
-  }
 
   if (!publicConfig.googleClientId) {
     await fetchPublicConfig();
@@ -478,7 +499,6 @@ async function handleLoginSubmit(event) {
   try {
     const formData = new FormData(loginForm);
     const response = await apiRequest("login", "POST", {
-      role: formData.get("loginRole").toString(),
       identifier: formData.get("loginIdentifier").toString().trim(),
       secret: formData.get("loginSecret").toString().trim(),
     });
@@ -509,10 +529,13 @@ async function handleRegisterSubmit(event) {
       contact: formData.get("registerContact").toString().trim(),
     });
 
-    setStatus(registerStatus, "Registration complete. Your account has been created.");
+    renderRegisterStatus(response);
     registerForm.reset();
-    window.alert("Registration complete. Click OK to open your student dashboard.");
-    redirectToRolePage(response.session);
+    window.alert(
+      response.emailDeliveryFailed && response.verificationUrl
+        ? "Account created. Email sending is not configured on this local machine yet. Use the verification link shown on the page to activate the account."
+        : "Registration received. Please check your email and click the verification link before logging in."
+    );
 
   } catch (error) {
     setStatus(registerStatus, error.message || "Registration failed.", true);
@@ -539,46 +562,34 @@ async function handleGoogleCredentialResponse(googleResponse) {
 
 function updateLoginHelpText() {
   if (PAGE === "register") {
-    ensureGoogleButton().catch((error) => setStatus(googleLoginStatus, error.message || "Google sign-in failed.", true));
     return;
   }
 
-  if (!loginRole || !loginIdentifier || !loginSecret || !loginHelpText) return;
-
-  if (loginRole.value === "staff") {
-    if (loginIdentifierLabel) loginIdentifierLabel.textContent = "Username / Staff";
-    loginIdentifier.placeholder = "Enter username";
-    loginSecret.placeholder = "Enter password";
-    loginSecret.type = "password";
-    loginHelpText.textContent = "Use your staff login.";
-    if (studentAccessPanel) studentAccessPanel.hidden = true;
-    ensureGoogleButton().catch(() => {});
-    return;
-  }
-
-  if (loginIdentifierLabel) loginIdentifierLabel.textContent = "Student ID / Gmail";
-  loginIdentifier.placeholder = "Enter student ID or Gmail";
+  if (!loginIdentifier || !loginSecret) return;
+  loginIdentifier.placeholder = "Enter username";
   loginSecret.placeholder = "Enter password";
   loginSecret.type = "password";
-  loginHelpText.textContent = "Use student ID or Gmail.";
   if (studentAccessPanel) studentAccessPanel.hidden = false;
-  ensureGoogleButton().catch((error) => setStatus(googleLoginStatus, error.message || "Google sign-in failed.", true));
 }
 
-function syncLoginRoleTabs() {
-  if (!loginRoleTabs.length || !loginRole) return;
-  loginRoleTabs.forEach((button) => {
-    const isActive = button.dataset.loginRoleTab === loginRole.value;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-pressed", String(isActive));
-  });
-}
+function showEmailVerificationStatus() {
+  if (PAGE !== "login") return;
 
-function setLoginRole(role) {
-  if (!loginRole) return;
-  loginRole.value = role === "student" ? "student" : "staff";
-  syncLoginRoleTabs();
-  updateLoginHelpText();
+  const params = new URLSearchParams(window.location.search);
+  const verificationStatus = params.get("emailVerification");
+  if (!verificationStatus) return;
+
+  if (verificationStatus === "success") {
+    if (loginHelpText) loginHelpText.textContent = "Email verified. You can now log in as a student.";
+    window.alert("Email verified. You can now log in.");
+  } else {
+    if (loginHelpText) loginHelpText.textContent = "Email verification failed or expired. Please register again or ask staff for help.";
+    window.alert("Email verification failed or expired.");
+  }
+
+  params.delete("emailVerification");
+  const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, document.title, cleanUrl);
 }
 
 function initAuthBindings() {
@@ -592,17 +603,15 @@ function initAuthBindings() {
   initLogoBindings();
 
   if (loginForm) loginForm.addEventListener("submit", handleLoginSubmit);
-  if (loginRole) loginRole.addEventListener("change", updateLoginHelpText);
-  loginRoleTabs.forEach((button) => {
-    button.addEventListener("click", () => setLoginRole(button.dataset.loginRoleTab || "staff"));
-  });
   if (logoutBtn) logoutBtn.addEventListener("click", logout);
   if (studentLogoutBtn) studentLogoutBtn.addEventListener("click", logout);
   if (registerForm) registerForm.addEventListener("submit", handleRegisterSubmit);
 
   if (PAGE === "login" || PAGE === "register") {
-    syncLoginRoleTabs();
-    fetchPublicConfig().finally(updateLoginHelpText);
+    fetchPublicConfig().finally(() => {
+      updateLoginHelpText();
+      showEmailVerificationStatus();
+    });
   }
 }
 

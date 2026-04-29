@@ -4,168 +4,162 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TDMS Admin Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=20260417b">
+  <link rel="icon" type="image/png" href="assets/logos/tdms-logo.png.png">
+  <link rel="stylesheet" href="styles.css?v=20260426a">
 </head>
 <body data-page="admin">
   <div class="page-shell">
     <button class="ghost-button theme-toggle dashboard-theme-floating" data-theme-toggle type="button">Dark mode</button>
-    <div class="app-shell">
+    <div class="app-shell student-shell">
       <aside class="sidebar">
         <div class="brand">
           <div class="brand-mark logo-frame is-fallback" data-logo-role="tdms">
             <img alt="TDMS logo">
             <span>TD</span>
           </div>
-          <div>
-            <h1>TDMS</h1>
-            <p>Admin reminder dashboard</p>
-          </div>
         </div>
 
-        <nav class="side-nav">
+        <nav id="adminSectionMenu" class="task-view-menu" aria-label="Admin sections">
           <p class="nav-label">Menu</p>
-          <button class="switch-button is-active" type="button">Admin Dashboard</button>
+          <button class="task-view-button is-active" type="button" data-admin-tab="requirements" aria-label="Requirements reminder" title="Requirements reminder">
+            <span class="task-view-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="16" rx="3"></rect>
+                <path d="M8 3v4M16 3v4M3 10h18"></path>
+                <path d="M8 14h8M8 18h5"></path>
+              </svg>
+            </span>
+            <span>Requirements reminder</span>
+          </button>
+          <button class="task-view-button" type="button" data-admin-tab="announcements" aria-label="Post announcement" title="Post announcement">
+            <span class="task-view-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 11.5V8.5a2.5 2.5 0 0 1 2.5-2.5h4l4-2v14l-4-2h-4A2.5 2.5 0 0 1 4 13.5z"></path>
+                <path d="M9 18v2"></path>
+              </svg>
+            </span>
+            <span>Post announcement</span>
+          </button>
         </nav>
-
-        <section class="download-card">
-          <p class="nav-label">Today&apos;s Focus</p>
-          <ul id="focusList" class="compact-list"></ul>
-        </section>
       </aside>
 
       <main class="main-content">
         <header class="topbar">
-          <div class="search-shell">
-            <span class="search-icon">Q</span>
-            <input id="taskSearch" type="search" placeholder="Search reminders">
-          </div>
           <div class="topbar-actions">
-            <div class="user-chip">
-              <span id="currentUserRole">Staff</span>
-              <strong id="currentUserName">TVET Staff Admin</strong>
-            </div>
-            <button class="ghost-button theme-toggle" data-theme-toggle type="button">Dark mode</button>
-            <button id="logoutBtn" class="ghost-button" type="button">Logout</button>
             <button id="printReportBtn" class="primary-button" type="button">Print report</button>
+            <button id="logoutBtn" class="ghost-button" type="button">Logout</button>
           </div>
         </header>
 
         <section class="hero-panel">
           <div class="hero-panel-row">
             <div>
-              <p class="eyebrow">Admin</p>
-              <h2>Reminder center</h2>
+              <p id="adminHeaderRole" class="eyebrow">Admin</p>
+              <h2 id="adminHeaderName">Reminder center</h2>
             </div>
           </div>
         </section>
 
-        <section class="dashboard-grid admin-grid">
-          <article class="panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Create</p>
-                <h3>Add reminder</h3>
-              </div>
+        <div class="student-tab-panels">
+          <section class="student-tab-panel is-active" data-admin-tab-panel="requirements">
+            <div class="task-view-stack">
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Requirements reminder</p>
+                    <h3>Add reminder</h3>
+                  </div>
+                </div>
+
+                <form id="adminReminderForm" class="form-grid">
+                  <label>
+                    Send to
+                    <select id="adminReminderTargetMode" name="adminReminderTargetMode" required>
+                      <option value="student" selected>One student</option>
+                      <option value="year">All students by year</option>
+                    </select>
+                  </label>
+                  <label id="adminReminderYearWrap">
+                    Year level
+                    <select id="adminReminderYearLevel" name="adminReminderYearLevel">
+                      <option value="">Select year</option>
+                      <option value="1st Year">1st Year</option>
+                      <option value="2nd Year">2nd Year</option>
+                      <option value="3rd Year">3rd Year</option>
+                      <option value="4th Year">4th Year</option>
+                    </select>
+                  </label>
+                  <label>
+                    Student
+                    <select id="adminReminderStudent" name="adminReminderStudent" required></select>
+                  </label>
+                  <label>
+                    Date of deadline
+                    <input id="adminReminderDueDate" name="adminReminderDueDate" type="date" required>
+                  </label>
+                  <label class="full-width">
+                    Requirement
+                    <input id="adminReminderTitle" name="adminReminderTitle" type="text" placeholder="e.g. OJT form" required>
+                  </label>
+                  <label class="full-width">
+                    Notes
+                    <textarea id="adminReminderNotes" name="adminReminderNotes" rows="3" placeholder="Short reminder details"></textarea>
+                  </label>
+                  <button class="primary-button" type="submit">Save reminder</button>
+                </form>
+              </article>
+
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Requirements reminder</p>
+                    <h3>Reminder list</h3>
+                  </div>
+                </div>
+                <div id="reminderList" class="reminder-list"></div>
+              </article>
             </div>
+          </section>
 
-            <form id="adminReminderForm" class="form-grid">
-              <label class="full-width">
-                Search student
-                <input id="adminReminderStudentSearch" name="adminReminderStudentSearch" type="search" placeholder="Type student name or ID">
-              </label>
-              <label>
-                Student
-                <select id="adminReminderStudent" name="adminReminderStudent" required></select>
-              </label>
-              <label>
-                Due date
-                <input id="adminReminderDueDate" name="adminReminderDueDate" type="date" required>
-              </label>
-              <label>
-                Missing requirement
-                <input id="adminReminderTitle" name="adminReminderTitle" type="text" placeholder="e.g. Missing OJT form" required>
-              </label>
-              <label>
-                Category
-                <select id="adminReminderCategory" name="adminReminderCategory">
-                  <option value="Missing Requirement">Missing Requirement</option>
-                  <option value="Document">Document</option>
-                  <option value="Assessment">Assessment</option>
-                  <option value="Project">Project</option>
-                </select>
-              </label>
-              <label class="full-width">
-                Notes
-                <textarea id="adminReminderNotes" name="adminReminderNotes" rows="3" placeholder="Short reminder details for the student"></textarea>
-              </label>
-              <button class="primary-button" type="submit">Save reminder</button>
-            </form>
-          </article>
+          <section class="student-tab-panel" data-admin-tab-panel="announcements">
+            <div class="task-view-stack">
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Post announcement</p>
+                    <h3>Add announcement</h3>
+                  </div>
+                </div>
 
-          <article class="panel reminders-panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">List</p>
-                <h3>Reminders</h3>
-              </div>
+                <form id="adminAnnouncementForm" class="form-grid">
+                  <label class="full-width">
+                    Title
+                    <input id="adminAnnouncementTitle" name="adminAnnouncementTitle" type="text" placeholder="e.g. OJT orientation" required>
+                  </label>
+                  <label>
+                    Calendar date
+                    <input id="adminAnnouncementDate" name="adminAnnouncementDate" type="date" required>
+                  </label>
+                  <label class="full-width">
+                    Details
+                    <textarea id="adminAnnouncementMessage" name="adminAnnouncementMessage" rows="4" placeholder="Write the announcement that students should see in their calendar." required></textarea>
+                  </label>
+                  <button class="primary-button" type="submit">Post announcement</button>
+                </form>
+              </article>
+
+              <article class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Post announcement</p>
+                    <h3>Announcement list</h3>
+                  </div>
+                </div>
+                <div id="adminAnnouncementList" class="reminder-list"></div>
+              </article>
             </div>
-            <div id="reminderList" class="reminder-list"></div>
-          </article>
-
-          <article class="panel admin-overdue-panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Overdue</p>
-                <h3>Incomplete student tasks</h3>
-              </div>
-            </div>
-            <p class="panel-copy">Tasks here are past the due date and have not been marked complete by the student.</p>
-            <div id="adminOverdueList" class="reminder-list"></div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Security</p>
-                <h3>Staff Account</h3>
-              </div>
-            </div>
-
-            <p id="adminSecurityNotice" class="panel-copy">Update your staff credentials here.</p>
-
-            <form id="adminSecurityForm" class="form-grid">
-              <label>
-                Username
-                <input id="adminSecurityUsername" type="text" placeholder="Enter username" required>
-              </label>
-              <label>
-                Full name
-                <input id="adminSecurityFullName" type="text" placeholder="Enter full name" required>
-              </label>
-              <label class="full-width">
-                School email
-                <input id="adminSecurityEmail" type="email" placeholder="name@asiancollege.edu.ph">
-              </label>
-              <label>
-                Current password
-                <input id="adminSecurityCurrentPassword" type="password" placeholder="Enter current password" required>
-              </label>
-              <label>
-                New password
-                <input id="adminSecurityNewPassword" type="password" placeholder="At least 10 characters" required>
-              </label>
-              <label class="full-width">
-                Confirm new password
-                <input id="adminSecurityConfirmPassword" type="password" placeholder="Confirm new password" required>
-              </label>
-              <div class="full-width action-row">
-                <button id="adminSecuritySubmit" class="primary-button" type="submit">Save staff credentials</button>
-              </div>
-            </form>
-
-            <p id="adminSecurityStatus" class="form-status">Use a strong staff password with letters and numbers.</p>
-          </article>
-        </section>
+          </section>
+        </div>
       </main>
     </div>
   </div>
@@ -176,7 +170,7 @@
     </div>
   </template>
 
-    <script src="auth.js?v=20260403c"></script>
-    <script src="app.js?v=20260414b"></script>
-  </body>
-  </html>
+  <script src="auth.js?v=20260403c"></script>
+  <script src="app.js?v=20260426a"></script>
+</body>
+</html>

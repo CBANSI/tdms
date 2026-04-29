@@ -34,9 +34,10 @@ const state = {
   students: [],
   subjects: [],
   tasks: [],
+  announcements: [],
   student: null,
   currentStudentTab: "tasks",
-  currentStudentTaskView: "planning",
+  currentAdminTab: "requirements",
   classroom: {
     loading: false,
     loaded: false,
@@ -44,10 +45,12 @@ const state = {
     courseWork: [],
     error: "",
   },
+  studentTaskComposerOpen: false,
 };
 
-const STUDENT_TABS = new Set(["tasks", "documents", "notifications", "calendar", "classroom"]);
-const STUDENT_TASK_VIEWS = new Set(["planning", "list", "profile", "today", "subjects"]);
+const STUDENT_TABS = new Set(["tasks", "subjects", "notifications", "calendar", "classroom"]);
+const ADMIN_TABS = new Set(["requirements", "announcements"]);
+const STUDENT_REMINDER_DAYS = new Set([3, 2, 0]);
 
 const emptyStateTemplate = document.getElementById("emptyStateTemplate");
 
@@ -60,9 +63,18 @@ const adminOverdueList = document.getElementById("adminOverdueList");
 const focusList = document.getElementById("focusList");
 const currentUserRole = document.getElementById("currentUserRole");
 const currentUserName = document.getElementById("currentUserName");
+const adminHeaderRole = document.getElementById("adminHeaderRole");
+const adminHeaderName = document.getElementById("adminHeaderName");
+const adminSectionMenu = document.getElementById("adminSectionMenu");
+const adminTabButtons = [...document.querySelectorAll("[data-admin-tab]")];
+const adminTabPanels = [...document.querySelectorAll("[data-admin-tab-panel]")];
 const adminReminderForm = document.getElementById("adminReminderForm");
-const adminReminderStudentSearch = document.getElementById("adminReminderStudentSearch");
+const adminReminderTargetMode = document.getElementById("adminReminderTargetMode");
+const adminReminderYearWrap = document.getElementById("adminReminderYearWrap");
+const adminReminderYearLevel = document.getElementById("adminReminderYearLevel");
 const adminReminderStudent = document.getElementById("adminReminderStudent");
+const adminAnnouncementForm = document.getElementById("adminAnnouncementForm");
+const adminAnnouncementList = document.getElementById("adminAnnouncementList");
 const adminSecurityForm = document.getElementById("adminSecurityForm");
 const adminSecurityNotice = document.getElementById("adminSecurityNotice");
 const adminSecurityUsername = document.getElementById("adminSecurityUsername");
@@ -74,13 +86,16 @@ const adminSecurityConfirmPassword = document.getElementById("adminSecurityConfi
 const adminSecuritySubmit = document.getElementById("adminSecuritySubmit");
 const adminSecurityStatus = document.getElementById("adminSecurityStatus");
 
-const studentDashboardSelect = document.getElementById("studentDashboardSelect");
-const studentTaskViewMenu = document.getElementById("studentTaskViewMenu");
+const studentSectionMenu = document.getElementById("studentSectionMenu");
 const studentSubjectForm = document.getElementById("studentSubjectForm");
 const studentSubjectList = document.getElementById("studentSubjectList");
 const studentSubjectStatus = document.getElementById("studentSubjectStatus");
 const studentSubjectSubmit = document.getElementById("studentSubjectSubmit");
 const studentTaskForm = document.getElementById("studentTaskForm");
+const studentTaskComposer = document.getElementById("studentTaskComposer");
+const studentTaskComposerBar = document.getElementById("studentTaskComposerBar");
+const studentTaskComposerToggle = document.getElementById("studentTaskComposerToggle");
+const studentTaskComposerCancel = document.getElementById("studentTaskComposerCancel");
 const studentTaskSubject = document.getElementById("studentTaskSubject");
 const studentProfileCard = document.getElementById("studentProfileCard");
 const studentReminderList = document.getElementById("studentReminderList");
@@ -89,12 +104,10 @@ const studentPendingCount = document.getElementById("studentPendingCount");
 const studentCompletedCount = document.getElementById("studentCompletedCount");
 const studentDueSoonCount = document.getElementById("studentDueSoonCount");
 const studentOverdueCount = document.getElementById("studentOverdueCount");
-const studentCurrentRole = document.getElementById("studentCurrentRole");
-const studentCurrentUserName = document.getElementById("studentCurrentUserName");
+const studentHeaderId = document.getElementById("studentHeaderId");
+const studentHeaderName = document.getElementById("studentHeaderName");
 const studentTabButtons = [...document.querySelectorAll("[data-student-tab]")];
 const studentTabPanels = [...document.querySelectorAll("[data-student-tab-panel]")];
-const studentTaskViewButtons = [...document.querySelectorAll("[data-student-task-view]")];
-const studentTaskViewPanels = [...document.querySelectorAll("[data-student-task-view-panel]")];
 const studentDocumentList = document.getElementById("studentDocumentList");
 const studentNotificationList = document.getElementById("studentNotificationList");
 const studentCalendarMonthLabel = document.getElementById("studentCalendarMonthLabel");
@@ -118,17 +131,19 @@ function bindEvents() {
     });
   }
   if (adminReminderForm) adminReminderForm.addEventListener("submit", handleAdminReminderSubmit);
-  if (adminReminderStudentSearch) adminReminderStudentSearch.addEventListener("input", syncAdminReminderStudentOptions);
+  if (adminReminderTargetMode) adminReminderTargetMode.addEventListener("change", syncAdminReminderTargetMode);
+  if (adminAnnouncementForm) adminAnnouncementForm.addEventListener("submit", handleAdminAnnouncementSubmit);
   if (adminSecurityForm) adminSecurityForm.addEventListener("submit", handleAdminSecuritySubmit);
+  adminTabButtons.forEach((button) => {
+    button.addEventListener("click", () => setAdminTab(button.dataset.adminTab || "requirements"));
+  });
   if (studentSubjectForm) studentSubjectForm.addEventListener("submit", handleStudentSubjectSubmit);
   if (studentTaskForm) studentTaskForm.addEventListener("submit", handleStudentTaskSubmit);
-  if (studentDashboardSelect) studentDashboardSelect.addEventListener("change", renderStudentPage);
+  if (studentTaskComposerToggle) studentTaskComposerToggle.addEventListener("click", () => setStudentTaskComposerOpen(true));
+  if (studentTaskComposerCancel) studentTaskComposerCancel.addEventListener("click", () => setStudentTaskComposerOpen(false));
   if (studentPrintTasksBtn) studentPrintTasksBtn.addEventListener("click", printStudentIncompleteTasks);
   studentTabButtons.forEach((button) => {
     button.addEventListener("click", () => setStudentTab(button.dataset.studentTab || "tasks"));
-  });
-  studentTaskViewButtons.forEach((button) => {
-    button.addEventListener("click", () => setStudentTaskView(button.dataset.studentTaskView || "planning"));
   });
   if (PAGE === "student") {
     window.addEventListener("hashchange", syncStudentTabFromHash);
@@ -194,6 +209,7 @@ async function loadAdminData() {
   state.adminAccount = response.account || null;
   state.students = response.students || [];
   state.tasks = enrichTasks(response.tasks || []);
+  state.announcements = enrichAnnouncements(response.announcements || []);
 }
 
 async function loadStudentData() {
@@ -202,6 +218,7 @@ async function loadStudentData() {
   state.student = response.student || null;
   state.subjects = response.subjects || [];
   state.tasks = enrichTasks(response.tasks || []);
+  state.announcements = enrichAnnouncements(response.announcements || []);
 }
 
 function enrichTasks(tasks) {
@@ -225,48 +242,37 @@ function enrichTasks(tasks) {
   });
 }
 
+function enrichAnnouncements(announcements) {
+  return announcements.map((announcement) => ({
+    ...announcement,
+    eventType: "announcement",
+    daysUntilDue: getDaysUntilDue(announcement.eventDate),
+  }));
+}
+
 function renderAdminPage() {
-  if (currentUserRole) currentUserRole.textContent = "Staff";
-  if (currentUserName) currentUserName.textContent = state.session.userName || "TVET Staff Admin";
-  renderAdminSecurity();
-  syncAdminSecurityLockState();
+  if (adminHeaderRole) {
+    adminHeaderRole.textContent = state.adminAccount?.username || "Admin";
+  }
+  if (adminHeaderName) {
+    adminHeaderName.textContent = state.adminAccount?.fullName || state.session.userName || "Reminder center";
+  }
   syncAdminReminderStudentOptions();
-  renderFocus(state.tasks.filter((task) => task.status !== "Completed"));
+  syncAdminReminderTargetMode();
+  renderAdminTabs();
   renderAdminReminders();
-  renderAdminOverdueTasks();
+  renderAdminAnnouncements();
 }
 
 function syncAdminReminderStudentOptions() {
   if (!adminReminderStudent) return;
   const previousValue = adminReminderStudent.value;
-  const studentQuery = adminReminderStudentSearch
-    ? adminReminderStudentSearch.value.trim().toLowerCase()
-    : "";
   adminReminderStudent.innerHTML = "";
-
-  const filteredStudents = !studentQuery
-    ? state.students
-    : state.students.filter((student) => {
-      const haystack = [student.name, student.studentId, student.program, student.email, student.contact]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(studentQuery);
-    });
 
   if (!state.students.length) {
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "No registered students yet";
-    adminReminderStudent.appendChild(option);
-    adminReminderStudent.disabled = true;
-    return;
-  }
-
-  if (!filteredStudents.length) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No student found";
     adminReminderStudent.appendChild(option);
     adminReminderStudent.disabled = true;
     return;
@@ -279,33 +285,107 @@ function syncAdminReminderStudentOptions() {
   placeholder.textContent = "Select student";
   adminReminderStudent.appendChild(placeholder);
 
-  filteredStudents.forEach((student) => {
+  state.students.forEach((student) => {
     const option = document.createElement("option");
     option.value = student.id;
     option.textContent = `${student.name} (${student.studentId})`;
     adminReminderStudent.appendChild(option);
   });
 
-  adminReminderStudent.value = filteredStudents.some((student) => String(student.id) === previousValue) ? previousValue : "";
+  adminReminderStudent.value = state.students.some((student) => String(student.id) === previousValue) ? previousValue : "";
+}
+
+function syncAdminReminderTargetMode() {
+  const mode = adminReminderTargetMode?.value || "student";
+  const byYear = mode === "year";
+
+  if (adminReminderYearWrap) {
+    adminReminderYearWrap.hidden = !byYear;
+  }
+
+  if (adminReminderYearLevel) {
+    adminReminderYearLevel.disabled = !byYear;
+    adminReminderYearLevel.required = byYear;
+  }
+
+  if (adminReminderStudent) {
+    adminReminderStudent.disabled = byYear;
+    adminReminderStudent.required = !byYear;
+  }
+}
+
+function setAdminTab(tab) {
+  state.currentAdminTab = ADMIN_TABS.has(tab) ? tab : "requirements";
+  renderAdminTabs();
+}
+
+function renderAdminTabs() {
+  adminTabButtons.forEach((button) => {
+    const isActive = button.dataset.adminTab === state.currentAdminTab;
+    button.classList.toggle("is-active", isActive);
+  });
+
+  adminTabPanels.forEach((panel) => {
+    const isActive = panel.dataset.adminTabPanel === state.currentAdminTab;
+    panel.classList.toggle("is-active", isActive);
+  });
+
+  if (adminSectionMenu) {
+    adminSectionMenu.hidden = false;
+  }
 }
 
 async function handleAdminReminderSubmit(event) {
   event.preventDefault();
   try {
     const formData = new FormData(adminReminderForm);
+    const targetMode = String(formData.get("adminReminderTargetMode") ?? "student");
+    const studentId = String(formData.get("adminReminderStudent") ?? "");
+    const yearLevel = String(formData.get("adminReminderYearLevel") ?? "");
+    const title = String(formData.get("adminReminderTitle") ?? "").trim();
+    const dueDate = String(formData.get("adminReminderDueDate") ?? "");
+    const notes = String(formData.get("adminReminderNotes") ?? "").trim();
+
     await apiRequest("add-admin-reminder", "POST", {
-      studentId: formData.get("adminReminderStudent").toString(),
-      title: formData.get("adminReminderTitle").toString().trim(),
-      category: formData.get("adminReminderCategory").toString(),
+      targetMode,
+      studentId,
+      yearLevel,
+      title,
+      category: "Missing Requirement",
       priority: "High",
-      dueDate: formData.get("adminReminderDueDate").toString(),
-      notes: formData.get("adminReminderNotes").toString().trim(),
+      dueDate,
+      notes,
       subject: "",
     });
     adminReminderForm.reset();
-    if (adminReminderStudentSearch) adminReminderStudentSearch.value = "";
     await loadAdminData();
     renderAdminPage();
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function handleAdminAnnouncementSubmit(event) {
+  event.preventDefault();
+  if (!adminAnnouncementForm) return;
+
+  try {
+    const formData = new FormData(adminAnnouncementForm);
+    const title = String(formData.get("adminAnnouncementTitle") ?? "").trim();
+    const eventDate = String(formData.get("adminAnnouncementDate") ?? "");
+    const message = String(formData.get("adminAnnouncementMessage") ?? "").trim();
+
+    const response = await apiRequest("add-announcement", "POST", {
+      title,
+      eventDate,
+      message,
+    });
+    adminAnnouncementForm.reset();
+    await loadAdminData();
+    renderAdminPage();
+    if (response?.message) {
+      window.alert(response.message);
+    }
   } catch (error) {
     showError(error);
   }
@@ -402,10 +482,8 @@ async function handleAdminSecuritySubmit(event) {
 
 function renderAdminReminders() {
   if (!reminderList) return;
-  const query = taskSearch ? taskSearch.value.trim().toLowerCase() : "";
   const reminders = state.tasks
-    .filter((task) => task.status !== "Completed" && task.daysUntilDue <= 3)
-    .filter((task) => [task.title, task.studentName, task.category, task.notes, task.priority].join(" ").toLowerCase().includes(query))
+    .filter((task) => task.status !== "Completed" && task.source === "admin")
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 
   reminderList.innerHTML = "";
@@ -416,6 +494,20 @@ function renderAdminReminders() {
   }
 
   reminders.forEach((task) => reminderList.appendChild(buildReminderCard(task, true)));
+}
+
+function renderAdminAnnouncements() {
+  if (!adminAnnouncementList) return;
+  adminAnnouncementList.innerHTML = "";
+
+  if (!state.announcements.length) {
+    adminAnnouncementList.appendChild(emptyStateNode("No announcements posted yet."));
+    return;
+  }
+
+  state.announcements.forEach((announcement) => {
+    adminAnnouncementList.appendChild(buildAnnouncementCard(announcement));
+  });
 }
 
 function renderAdminOverdueTasks() {
@@ -437,16 +529,13 @@ function renderAdminOverdueTasks() {
 }
 
 function renderStudentPage() {
-  if (studentCurrentRole) studentCurrentRole.textContent = "Student";
-  if (studentCurrentUserName) studentCurrentUserName.textContent = state.session.userName || "Student Account";
-  syncStudentDashboardOptions();
+  if (studentHeaderId) studentHeaderId.textContent = `Student ID: ${state.student?.studentId || state.session.studentId || "-"}`;
+  if (studentHeaderName) studentHeaderName.textContent = state.student?.name || state.session.userName || "Student Account";
   syncStudentTaskSubjectOptions();
   renderStudentTabs();
-  renderStudentTaskViews();
+  renderStudentTaskComposer();
   renderFocus(state.tasks.filter((task) => task.status !== "Completed"));
-  renderStudentProfile();
   renderStudentSubjects();
-  renderStudentReminders();
   renderStudentTaskTable();
   renderStudentStats();
   renderStudentDocuments();
@@ -482,50 +571,32 @@ function renderStudentTabs() {
     const isActive = panel.dataset.studentTabPanel === state.currentStudentTab;
     panel.classList.toggle("is-active", isActive);
   });
-  renderStudentTaskViews();
+  if (studentSectionMenu) {
+    studentSectionMenu.hidden = false;
+  }
 }
 
-function setStudentTaskView(view) {
-  state.currentStudentTaskView = STUDENT_TASK_VIEWS.has(view) ? view : "planning";
-  renderStudentTaskViews();
+function setStudentTaskComposerOpen(nextOpen) {
+  state.studentTaskComposerOpen = Boolean(nextOpen);
+  renderStudentTaskComposer();
 }
 
-function renderStudentTaskViews() {
-  const showTaskViews = state.currentStudentTab === "tasks";
-
-  if (studentTaskViewMenu) {
-    studentTaskViewMenu.hidden = !showTaskViews;
+function renderStudentTaskComposer() {
+  if (studentTaskComposer) {
+    studentTaskComposer.hidden = !state.studentTaskComposerOpen;
   }
 
-  studentTaskViewButtons.forEach((button) => {
-    const isActive = showTaskViews && button.dataset.studentTaskView === state.currentStudentTaskView;
-    button.classList.toggle("is-active", isActive);
-  });
+  if (studentTaskComposerBar) {
+    studentTaskComposerBar.hidden = state.studentTaskComposerOpen;
+  }
 
-  studentTaskViewPanels.forEach((panel) => {
-    const isActive = showTaskViews && panel.dataset.studentTaskViewPanel === state.currentStudentTaskView;
-    panel.classList.toggle("is-active", isActive);
-  });
+  if (studentTaskComposerToggle) {
+    studentTaskComposerToggle.hidden = state.studentTaskComposerOpen;
+  }
 }
 
 function syncStudentDashboardOptions() {
-  if (!studentDashboardSelect) return;
-  studentDashboardSelect.innerHTML = "";
-
-  if (!state.student) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No student loaded";
-    studentDashboardSelect.appendChild(option);
-    studentDashboardSelect.disabled = true;
-    return;
-  }
-
-  const option = document.createElement("option");
-  option.value = state.student.id;
-  option.textContent = `${state.student.name} (${state.student.studentId})`;
-  studentDashboardSelect.appendChild(option);
-  studentDashboardSelect.disabled = true;
+  return;
 }
 
 function syncStudentTaskSubjectOptions() {
@@ -646,15 +717,18 @@ async function handleStudentTaskSubmit(event) {
   event.preventDefault();
   try {
     const formData = new FormData(studentTaskForm);
+    const subject = formData.get("studentTaskSubject").toString();
+    const category = formData.get("studentTaskCategory").toString();
     await apiRequest("add-student-task", "POST", {
-      title: formData.get("studentTaskTitle").toString().trim(),
-      subject: formData.get("studentTaskSubject").toString(),
-      category: formData.get("studentTaskCategory").toString(),
+      title: `${subject} - ${category}`,
+      subject,
+      category,
       priority: formData.get("studentTaskPriority").toString(),
       dueDate: formData.get("studentTaskDueDate").toString(),
       notes: formData.get("studentTaskNotes").toString().trim(),
     });
     studentTaskForm.reset();
+    setStudentTaskComposerOpen(false);
     await loadStudentData();
     renderStudentPage();
   } catch (error) {
@@ -686,7 +760,7 @@ function renderStudentProfile() {
 function renderStudentReminders() {
   if (!studentReminderList) return;
   const reminders = state.tasks
-    .filter((task) => task.status !== "Completed" && task.daysUntilDue <= 3)
+    .filter(shouldSendStudentReminder)
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 
   studentReminderList.innerHTML = "";
@@ -714,14 +788,18 @@ function renderStudentDocuments() {
 
 function renderStudentNotifications() {
   if (!studentNotificationList) return;
-  const notifications = getAdminNotificationTasks();
+  const announcements = state.announcements
+    .slice()
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+  const notifications = getStudentDeadlineNotifications();
   studentNotificationList.innerHTML = "";
 
-  if (!notifications.length) {
-    studentNotificationList.appendChild(emptyStateNode("No admin notifications available."));
+  if (!announcements.length && !notifications.length) {
+    studentNotificationList.appendChild(emptyStateNode("No announcements or deadline notifications right now."));
     return;
   }
 
+  announcements.forEach((announcement) => studentNotificationList.appendChild(buildStudentAnnouncementCard(announcement)));
   notifications.forEach((task) => studentNotificationList.appendChild(buildReminderCard(task, false)));
 }
 
@@ -735,14 +813,26 @@ function renderStudentCalendar() {
   const lastDay = new Date(year, month + 1, 0);
   const startOffset = firstDay.getDay();
   const totalDays = lastDay.getDate();
-  const deadlinesByDate = new Map();
+  const eventsByDate = new Map();
 
   state.tasks.forEach((task) => {
     const due = new Date(`${task.dueDate}T00:00:00`);
     if (due.getFullYear() !== year || due.getMonth() !== month) return;
     const day = due.getDate();
-    if (!deadlinesByDate.has(day)) deadlinesByDate.set(day, []);
-    deadlinesByDate.get(day).push(task);
+    if (!eventsByDate.has(day)) eventsByDate.set(day, []);
+    eventsByDate.get(day).push({
+      ...task,
+      eventType: "task",
+      eventDate: task.dueDate,
+    });
+  });
+
+  state.announcements.forEach((announcement) => {
+    const eventDate = parseTaskDate(announcement.eventDate);
+    if (!eventDate || eventDate.getFullYear() !== year || eventDate.getMonth() !== month) return;
+    const day = eventDate.getDate();
+    if (!eventsByDate.has(day)) eventsByDate.set(day, []);
+    eventsByDate.get(day).push(announcement);
   });
 
   studentCalendarMonthLabel.textContent = firstDay.toLocaleDateString(undefined, {
@@ -761,17 +851,17 @@ function renderStudentCalendar() {
   for (let day = 1; day <= totalDays; day += 1) {
     const cell = document.createElement("article");
     const isToday = day === today.getDate();
-    const tasksForDay = deadlinesByDate.get(day) || [];
+    const eventsForDay = eventsByDate.get(day) || [];
     cell.className = `calendar-cell${isToday ? " is-today" : ""}`;
 
-    const itemsMarkup = tasksForDay.slice(0, 3).map((task) => `
-      <span class="calendar-pill ${task.displayStatus.toLowerCase()}">${escapeHtml(task.title)}</span>
+    const itemsMarkup = eventsForDay.slice(0, 3).map((item) => `
+      <span class="calendar-pill ${item.eventType === "announcement" ? "announcement" : item.displayStatus.toLowerCase()}">${escapeHtml(item.title)}</span>
     `).join("");
 
     cell.innerHTML = `
       <div class="calendar-date-line">
         <strong>${day}</strong>
-        <span>${tasksForDay.length ? `${tasksForDay.length} due` : ""}</span>
+        <span>${eventsForDay.length ? `${eventsForDay.length} item(s)` : ""}</span>
       </div>
       <div class="calendar-cell-items">
         ${itemsMarkup || '<span class="calendar-empty">No deadline</span>'}
@@ -780,9 +870,18 @@ function renderStudentCalendar() {
     studentCalendarGrid.appendChild(cell);
   }
 
-  const agendaItems = state.tasks
+  const agendaItems = [
+    ...state.tasks.map((task) => ({ ...task, eventType: "task", eventDate: task.dueDate })),
+    ...state.announcements.map((announcement) => ({
+      ...announcement,
+      dueDate: announcement.eventDate,
+      subject: "Announcement",
+      category: "Announcement",
+      daysUntilDue: getDaysUntilDue(announcement.eventDate),
+    })),
+  ]
     .slice()
-    .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+    .sort((a, b) => getDaysUntilDue(a.eventDate) - getDaysUntilDue(b.eventDate))
     .slice(0, 8);
 
   studentCalendarAgenda.innerHTML = "";
@@ -1145,9 +1244,13 @@ function getMissingDocumentTasks() {
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 }
 
-function getAdminNotificationTasks() {
+function shouldSendStudentReminder(task) {
+  return task.status !== "Completed" && STUDENT_REMINDER_DAYS.has(task.daysUntilDue);
+}
+
+function getStudentDeadlineNotifications() {
   return state.tasks
-    .filter((task) => task.source === "admin")
+    .filter(shouldSendStudentReminder)
     .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 }
 
@@ -1193,6 +1296,37 @@ function buildReminderCard(task, includeStudent) {
     <span>Deadline: ${escapeHtml(formatDate(task.dueDate))}</span>
     <span>${escapeHtml(timingLabel)}</span>
     <span>${escapeHtml(task.notes || "No notes added.")}</span>
+  `;
+  return card;
+}
+
+function buildAnnouncementCard(announcement) {
+  const card = document.createElement("article");
+  card.className = "reminder-card warning";
+  card.innerHTML = `
+    <strong>${escapeHtml(announcement.title)}</strong>
+    <span>Calendar date: ${escapeHtml(formatDate(announcement.eventDate))}</span>
+    <span>Posted by: ${escapeHtml(announcement.createdByName || "Admin")}</span>
+    <span>${escapeHtml(announcement.message || "No details added.")}</span>
+  `;
+  return card;
+}
+
+function buildStudentAnnouncementCard(announcement) {
+  const card = document.createElement("article");
+  const timingLabel = announcement.daysUntilDue < 0
+    ? `Posted ${Math.abs(announcement.daysUntilDue)} day(s) ago`
+    : announcement.daysUntilDue === 0
+      ? "Happening today"
+      : `In ${announcement.daysUntilDue} day(s)`;
+
+  card.className = "reminder-card warning";
+  card.innerHTML = `
+    <strong>${escapeHtml(announcement.title)}</strong>
+    <span>Announcement</span>
+    <span>Date: ${escapeHtml(formatDate(announcement.eventDate))}</span>
+    <span>${escapeHtml(timingLabel)}</span>
+    <span>${escapeHtml(announcement.message || "No details added.")}</span>
   `;
   return card;
 }

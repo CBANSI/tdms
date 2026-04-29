@@ -97,10 +97,10 @@ function public_client_config(): array
     ];
 }
 
-function student_columns(PDO $pdo): array
+function student_columns(PDO $pdo, bool $refresh = false): array
 {
     static $columns = null;
-    if (is_array($columns)) {
+    if (!$refresh && is_array($columns)) {
         return $columns;
     }
 
@@ -142,8 +142,47 @@ function student_select_columns(PDO $pdo, string $prefix = ''): string
     if (student_has_column($pdo, 'google_sub')) {
         $columns[] = "{$p}google_sub";
     }
+    if (student_has_column($pdo, 'email_verified_at')) {
+        $columns[] = "{$p}email_verified_at";
+    }
+    if (student_has_column($pdo, 'email_verification_token_hash')) {
+        $columns[] = "{$p}email_verification_token_hash";
+    }
+    if (student_has_column($pdo, 'email_verification_expires_at')) {
+        $columns[] = "{$p}email_verification_expires_at";
+    }
 
     return implode(', ', $columns);
+}
+
+function ensure_student_email_verification_schema(PDO $pdo): void
+{
+    $columns = student_columns($pdo);
+    $emailAnchor = isset($columns['email']) ? 'email' : 'contact';
+
+    if (!isset($columns['email_verified_at'])) {
+        $pdo->exec("ALTER TABLE students ADD COLUMN email_verified_at DATETIME NULL AFTER {$emailAnchor}");
+    }
+    if (!isset($columns['email_verification_token_hash'])) {
+        $pdo->exec('ALTER TABLE students ADD COLUMN email_verification_token_hash VARCHAR(64) NULL AFTER email_verified_at');
+    }
+    if (!isset($columns['email_verification_expires_at'])) {
+        $pdo->exec('ALTER TABLE students ADD COLUMN email_verification_expires_at DATETIME NULL AFTER email_verification_token_hash');
+    }
+
+    $existingAccountCondition = isset($columns['auth_provider'])
+        ? "AND (auth_provider = 'google' OR email_verification_token_hash IS NULL)"
+        : 'AND email_verification_token_hash IS NULL';
+
+    $pdo->exec("
+        UPDATE students
+        SET email_verified_at = COALESCE(email_verified_at, NOW())
+        WHERE email_verified_at IS NULL
+            AND COALESCE(email, '') <> ''
+            {$existingAccountCondition}
+    ");
+
+    student_columns($pdo, true);
 }
 
 function admin_columns(PDO $pdo, bool $refresh = false): array
@@ -189,6 +228,41 @@ function ensure_admin_security_schema(PDO $pdo): void
     }
 
     admin_columns($pdo, true);
+}
+
+function ensure_email_reminder_schema(PDO $pdo): void
+{
+    $pdo->exec('
+        CREATE TABLE IF NOT EXISTS email_reminder_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            task_id INT NOT NULL,
+            reminder_day INT NOT NULL,
+            recipient_email VARCHAR(190) NOT NULL,
+            sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_task_reminder_email (task_id, reminder_day, recipient_email),
+            INDEX idx_email_reminder_sent_at (sent_at),
+            CONSTRAINT fk_email_reminder_task
+                FOREIGN KEY (task_id) REFERENCES tasks(id)
+                ON DELETE CASCADE
+        )
+    ');
+}
+
+function ensure_announcements_schema(PDO $pdo): void
+{
+    $pdo->exec('
+        CREATE TABLE IF NOT EXISTS announcements (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(200) NOT NULL,
+            message TEXT NOT NULL,
+            event_date DATE NOT NULL,
+            created_by_admin_id INT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_announcement_admin
+                FOREIGN KEY (created_by_admin_id) REFERENCES admins(id)
+                ON DELETE SET NULL
+        )
+    ');
 }
 
 function is_password_hash_string(?string $value): bool
@@ -336,11 +410,46 @@ function require_staff_password_updated(): array
     return $session;
 }
 
+function authorize_email_reminder_run(array $input): void
+{
+    if (!empty($_SESSION['user']) && ($_SESSION['user']['role'] ?? '') === 'staff') {
+        require_staff_password_updated();
+        return;
+    }
+
+    $config = app_config();
+    $configuredToken = trim((string)($config['email_reminder_token'] ?? ''));
+    $providedToken = trim((string)($input['token'] ?? ($_GET['token'] ?? '')));
+
+    if ($configuredToken !== '' && hash_equals($configuredToken, $providedToken)) {
+        return;
+    }
+
+    respond(['ok' => false, 'message' => 'Only staff or a valid reminder token can send email reminders.'], 401);
+}
+
 function fetch_students(PDO $pdo): array
 {
     $emailSelect = student_has_column($pdo, 'email') ? 'email' : '"" AS email';
     $stmt = $pdo->query("SELECT id, student_id AS studentId, full_name AS name, program, {$emailSelect}, contact FROM students ORDER BY full_name");
     return $stmt->fetchAll();
+}
+
+function fetch_student_ids_by_year(PDO $pdo, string $yearLevel): array
+{
+    $stmt = $pdo->prepare('
+        SELECT DISTINCT s.id
+        FROM students s
+        INNER JOIN subjects subj ON subj.student_id = s.id
+        WHERE subj.year_level = :year_level
+        ORDER BY s.id ASC
+    ');
+    $stmt->execute(['year_level' => $yearLevel]);
+
+    return array_map(
+        static fn(array $row): int => (int)$row['id'],
+        $stmt->fetchAll()
+    );
 }
 
 function fetch_subjects(PDO $pdo, ?int $studentId = null): array
@@ -385,6 +494,543 @@ function fetch_tasks(PDO $pdo, ?int $studentId = null): array
     $stmt = $pdo->prepare($sql);
     $stmt->execute($studentId === null ? [] : ['student_id' => $studentId]);
     return $stmt->fetchAll();
+}
+
+function fetch_announcements(PDO $pdo): array
+{
+    ensure_announcements_schema($pdo);
+
+    $stmt = $pdo->query('
+        SELECT
+            a.id,
+            a.title,
+            a.message,
+            a.event_date AS eventDate,
+            a.created_at AS createdAt,
+            COALESCE(ad.full_name, "Admin") AS createdByName
+        FROM announcements a
+        LEFT JOIN admins ad ON ad.id = a.created_by_admin_id
+        ORDER BY a.event_date ASC, a.created_at DESC
+    ');
+
+    return $stmt->fetchAll();
+}
+
+function fetch_announcement_email_recipients(PDO $pdo): array
+{
+    if (!student_has_column($pdo, 'email')) {
+        return [];
+    }
+
+    $verificationFilter = student_has_column($pdo, 'email_verified_at')
+        ? 'AND email_verified_at IS NOT NULL'
+        : '';
+
+    $stmt = $pdo->query("
+        SELECT id, full_name AS fullName, email
+        FROM students
+        WHERE COALESCE(NULLIF(email, ''), '') <> ''
+        {$verificationFilter}
+        ORDER BY full_name ASC
+    ");
+
+    return $stmt->fetchAll();
+}
+
+function deadline_reminder_days(): array
+{
+    return [3, 2, 0];
+}
+
+function fetch_due_email_reminder_tasks(PDO $pdo): array
+{
+    $emailExpression = student_has_column($pdo, 'email')
+        ? "COALESCE(NULLIF(s.email, ''), NULLIF(s.contact, ''))"
+        : "NULLIF(s.contact, '')";
+    $daysExpression = 'DATEDIFF(t.due_date, CURDATE())';
+    $dayList = implode(',', deadline_reminder_days());
+
+    $sql = "
+        SELECT
+            t.id AS taskId,
+            t.title,
+            t.subject_name AS subject,
+            t.category,
+            t.priority,
+            t.due_date AS dueDate,
+            t.notes,
+            s.full_name AS studentName,
+            {$emailExpression} AS recipientEmail,
+            {$daysExpression} AS reminderDay
+        FROM tasks t
+        INNER JOIN students s ON s.id = t.student_id
+        LEFT JOIN email_reminder_log erl
+            ON erl.task_id = t.id
+            AND erl.reminder_day = {$daysExpression}
+            AND erl.recipient_email = {$emailExpression}
+        WHERE t.status <> 'Completed'
+            AND {$daysExpression} IN ({$dayList})
+            AND {$emailExpression} IS NOT NULL
+            AND {$emailExpression} <> ''
+            AND erl.id IS NULL
+        ORDER BY t.due_date ASC, s.full_name ASC
+    ";
+
+    return $pdo->query($sql)->fetchAll();
+}
+
+function reminder_timing_label(int $reminderDay): string
+{
+    if ($reminderDay === 0) {
+        return 'today';
+    }
+
+    return "in {$reminderDay} day(s)";
+}
+
+function build_deadline_email_subject(array $task): string
+{
+    return sprintf('TDMS reminder: "%s" is due %s', (string)$task['title'], reminder_timing_label((int)$task['reminderDay']));
+}
+
+function build_deadline_email_body(array $task): string
+{
+    $lines = [
+        'Hello ' . (string)$task['studentName'] . ',',
+        '',
+        'This is a TDMS deadline reminder.',
+        '',
+        'Task: ' . (string)$task['title'],
+        'Due date: ' . date('F j, Y', strtotime((string)$task['dueDate'])),
+        'Reminder: Due ' . reminder_timing_label((int)$task['reminderDay']),
+    ];
+
+    if (!empty($task['subject'])) {
+        $lines[] = 'Subject: ' . (string)$task['subject'];
+    }
+    if (!empty($task['category'])) {
+        $lines[] = 'Category: ' . (string)$task['category'];
+    }
+    if (!empty($task['priority'])) {
+        $lines[] = 'Priority: ' . (string)$task['priority'];
+    }
+    if (!empty($task['notes'])) {
+        $lines[] = '';
+        $lines[] = 'Notes:';
+        $lines[] = (string)$task['notes'];
+    }
+
+    $lines[] = '';
+    $lines[] = 'If you already completed this task, mark it as complete in TDMS so no more reminders will be sent.';
+    $lines[] = '';
+    $lines[] = 'TDMS';
+
+    return implode("\r\n", $lines);
+}
+
+function build_announcement_email_subject(array $announcement): string
+{
+    return sprintf('TDMS announcement: %s', (string)$announcement['title']);
+}
+
+function build_announcement_email_body(string $studentName, array $announcement): string
+{
+    $lines = [
+        'Hello ' . $studentName . ',',
+        '',
+        'A new TDMS announcement has been posted for all students.',
+        '',
+        'Title: ' . (string)$announcement['title'],
+        'Date: ' . date('F j, Y', strtotime((string)$announcement['eventDate'])),
+        'Posted by: ' . (string)($announcement['createdByName'] ?? 'Admin'),
+        '',
+        (string)$announcement['message'],
+        '',
+        'Please check TDMS for more details.',
+        '',
+        'TDMS',
+    ];
+
+    return implode("\r\n", $lines);
+}
+
+function send_announcement_emails(PDO $pdo, array $announcement): array
+{
+    $recipients = fetch_announcement_email_recipients($pdo);
+    $sent = [];
+    $skipped = [];
+    $failed = [];
+
+    foreach ($recipients as $recipient) {
+        $recipientEmail = normalize_email((string)($recipient['email'] ?? ''));
+        if ($recipientEmail === null || !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+            $skipped[] = [
+                'studentId' => (int)($recipient['id'] ?? 0),
+                'studentName' => (string)($recipient['fullName'] ?? 'Unknown student'),
+                'reason' => 'Student has no valid email address.',
+            ];
+            continue;
+        }
+
+        $body = build_announcement_email_body((string)$recipient['fullName'], $announcement);
+        if (!send_tdms_email($recipientEmail, build_announcement_email_subject($announcement), $body)) {
+            $failed[] = [
+                'studentId' => (int)($recipient['id'] ?? 0),
+                'studentName' => (string)($recipient['fullName'] ?? 'Unknown student'),
+                'email' => $recipientEmail,
+                'reason' => 'PHP mail() could not send the message. Configure email sending in XAMPP/PHP.',
+            ];
+            continue;
+        }
+
+        $sent[] = [
+            'studentId' => (int)($recipient['id'] ?? 0),
+            'studentName' => (string)($recipient['fullName'] ?? 'Unknown student'),
+            'email' => $recipientEmail,
+        ];
+    }
+
+    return [
+        'sent' => $sent,
+        'skipped' => $skipped,
+        'failed' => $failed,
+    ];
+}
+
+function app_base_url(): string
+{
+    $config = app_config();
+    $configured = trim((string)($config['app_base_url'] ?? ''));
+    if ($configured !== '') {
+        return rtrim($configured, '/') . '/';
+    }
+
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (string)($_SERVER['SERVER_PORT'] ?? '') === '443';
+    $scheme = $isHttps ? 'https' : 'http';
+    $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '/tdms/api/index.php'));
+    $basePath = preg_replace('#/api/index\.php$#', '/', $script) ?: '/tdms/';
+
+    return "{$scheme}://{$host}{$basePath}";
+}
+
+function verification_redirect_url(string $status): string
+{
+    return app_base_url() . 'index.html?emailVerification=' . rawurlencode($status);
+}
+
+function redirect_to_verification_result(string $status): void
+{
+    header('Location: ' . verification_redirect_url($status), true, 302);
+    exit;
+}
+
+function create_email_verification_token(PDO $pdo, int $studentId): string
+{
+    $token = bin2hex(random_bytes(32));
+    $stmt = $pdo->prepare('
+        UPDATE students
+        SET email_verified_at = NULL,
+            email_verification_token_hash = :token_hash,
+            email_verification_expires_at = :expires_at
+        WHERE id = :id
+    ');
+    $stmt->execute([
+        'token_hash' => hash('sha256', $token),
+        'expires_at' => date('Y-m-d H:i:s', strtotime('+24 hours')),
+        'id' => $studentId,
+    ]);
+
+    return $token;
+}
+
+function build_verification_email_body(string $fullName, string $verificationUrl): string
+{
+    return implode("\r\n", [
+        'Hello ' . $fullName . ',',
+        '',
+        'Welcome to TDMS.',
+        '',
+        'Please verify your email address before logging in:',
+        $verificationUrl,
+        '',
+        'This link expires in 24 hours.',
+        '',
+        'If you did not register for TDMS, you can ignore this email.',
+        '',
+        'TDMS',
+    ]);
+}
+
+function send_student_verification_email(string $email, string $fullName, string $token): bool
+{
+    $verificationUrl = app_base_url() . 'api/index.php?action=verify-student-email&token=' . rawurlencode($token);
+    return send_tdms_email(
+        $email,
+        'Verify your TDMS student account',
+        build_verification_email_body($fullName, $verificationUrl)
+    );
+}
+
+function verify_student_email_token(PDO $pdo, string $token): bool
+{
+    if ($token === '') {
+        return false;
+    }
+
+    $stmt = $pdo->prepare('
+        SELECT id
+        FROM students
+        WHERE email_verification_token_hash = :token_hash
+            AND email_verification_expires_at >= NOW()
+        LIMIT 1
+    ');
+    $stmt->execute(['token_hash' => hash('sha256', $token)]);
+    $student = $stmt->fetch();
+
+    if (!$student) {
+        return false;
+    }
+
+    $updateStmt = $pdo->prepare('
+        UPDATE students
+        SET email_verified_at = NOW(),
+            email_verification_token_hash = NULL,
+            email_verification_expires_at = NULL
+        WHERE id = :id
+    ');
+    $updateStmt->execute(['id' => (int)$student['id']]);
+
+    return true;
+}
+
+function email_header_safe(string $value): string
+{
+    return trim(preg_replace('/[\r\n]+/', ' ', $value) ?? '');
+}
+
+function smtp_is_configured(array $config): bool
+{
+    return trim((string)($config['smtp_host'] ?? '')) !== ''
+        && trim((string)($config['smtp_username'] ?? '')) !== ''
+        && trim((string)($config['smtp_password'] ?? '')) !== '';
+}
+
+function smtp_read_response($socket): string
+{
+    $response = '';
+
+    while (($line = fgets($socket, 515)) !== false) {
+        $response .= $line;
+        if (strlen($line) < 4 || $line[3] !== '-') {
+            break;
+        }
+    }
+
+    if ($response === '') {
+        throw new RuntimeException('SMTP server did not respond.');
+    }
+
+    return $response;
+}
+
+function smtp_expect_code($socket, array $codes, string $context): string
+{
+    $response = smtp_read_response($socket);
+    $code = (int)substr($response, 0, 3);
+
+    if (!in_array($code, $codes, true)) {
+        throw new RuntimeException($context . ': ' . trim($response));
+    }
+
+    return $response;
+}
+
+function smtp_send_command($socket, string $command, array $codes, string $context): string
+{
+    if (fwrite($socket, $command . "\r\n") === false) {
+        throw new RuntimeException($context . ': failed to write to SMTP socket.');
+    }
+
+    return smtp_expect_code($socket, $codes, $context);
+}
+
+function smtp_normalize_body(string $body): string
+{
+    $normalized = str_replace(["\r\n", "\r"], "\n", $body);
+    $lines = explode("\n", $normalized);
+    $escaped = array_map(
+        static fn(string $line): string => str_starts_with($line, '.') ? '.' . $line : $line,
+        $lines
+    );
+
+    return implode("\r\n", $escaped);
+}
+
+function smtp_send_email(array $config, string $to, string $subject, string $body): bool
+{
+    $host = trim((string)($config['smtp_host'] ?? ''));
+    $port = (int)($config['smtp_port'] ?? 587);
+    $username = trim((string)($config['smtp_username'] ?? ''));
+    $password = (string)($config['smtp_password'] ?? '');
+    $encryption = strtolower(trim((string)($config['smtp_encryption'] ?? 'tls')));
+    $timeout = (int)($config['smtp_timeout'] ?? 15);
+    $configuredFrom = email_header_safe((string)($config['mail_from'] ?? ''));
+    $from = ($configuredFrom === '' || str_ends_with(mb_strtolower($configuredFrom), '@localhost'))
+        ? $username
+        : $configuredFrom;
+    $fromName = email_header_safe((string)($config['mail_from_name'] ?? 'TDMS Reminder'));
+    $transport = $encryption === 'ssl' ? "ssl://{$host}:{$port}" : "{$host}:{$port}";
+
+    $socket = @stream_socket_client($transport, $errorCode, $errorMessage, $timeout, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        throw new RuntimeException("SMTP connection failed: {$errorMessage} ({$errorCode})");
+    }
+
+    stream_set_timeout($socket, $timeout);
+
+    try {
+        smtp_expect_code($socket, [220], 'SMTP greeting');
+        smtp_send_command($socket, 'EHLO localhost', [250], 'SMTP EHLO');
+
+        if ($encryption === 'tls') {
+            smtp_send_command($socket, 'STARTTLS', [220], 'SMTP STARTTLS');
+            $cryptoEnabled = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+            if ($cryptoEnabled !== true) {
+                throw new RuntimeException('SMTP TLS encryption could not be enabled.');
+            }
+            smtp_send_command($socket, 'EHLO localhost', [250], 'SMTP EHLO after STARTTLS');
+        }
+
+        smtp_send_command($socket, 'AUTH LOGIN', [334], 'SMTP AUTH LOGIN');
+        smtp_send_command($socket, base64_encode($username), [334], 'SMTP username');
+        smtp_send_command($socket, base64_encode($password), [235], 'SMTP password');
+        smtp_send_command($socket, 'MAIL FROM:<' . $from . '>', [250], 'SMTP MAIL FROM');
+        smtp_send_command($socket, 'RCPT TO:<' . email_header_safe($to) . '>', [250, 251], 'SMTP RCPT TO');
+        smtp_send_command($socket, 'DATA', [354], 'SMTP DATA');
+
+        $headers = [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'From: ' . ($fromName !== '' ? "{$fromName} <{$from}>" : $from),
+            'Reply-To: ' . $from,
+            'Subject: ' . email_header_safe($subject),
+            'To: ' . email_header_safe($to),
+            'Date: ' . date(DATE_RFC2822),
+            'X-Mailer: PHP/' . phpversion(),
+        ];
+
+        $payload = implode("\r\n", $headers) . "\r\n\r\n" . smtp_normalize_body($body) . "\r\n.\r\n";
+        if (fwrite($socket, $payload) === false) {
+            throw new RuntimeException('SMTP message body could not be written.');
+        }
+
+        smtp_expect_code($socket, [250], 'SMTP message send');
+        smtp_send_command($socket, 'QUIT', [221], 'SMTP QUIT');
+
+        return true;
+    } finally {
+        fclose($socket);
+    }
+}
+
+function send_tdms_email(string $to, string $subject, string $body): bool
+{
+    $config = app_config();
+    if (smtp_is_configured($config)) {
+        return smtp_send_email($config, $to, $subject, $body);
+    }
+
+    $from = email_header_safe((string)($config['mail_from'] ?? 'tdms@localhost'));
+    $fromName = email_header_safe((string)($config['mail_from_name'] ?? 'TDMS Reminder'));
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . ($fromName !== '' ? "{$fromName} <{$from}>" : $from),
+        'Reply-To: ' . $from,
+        'X-Mailer: PHP/' . phpversion(),
+    ];
+
+    return @mail($to, email_header_safe($subject), $body, implode("\r\n", $headers));
+}
+
+function build_student_verification_url(string $token): string
+{
+    return app_base_url() . 'api/index.php?action=verify-student-email&token=' . rawurlencode($token);
+}
+
+function run_deadline_email_reminders(PDO $pdo, bool $dryRun = false): array
+{
+    ensure_email_reminder_schema($pdo);
+
+    $tasks = fetch_due_email_reminder_tasks($pdo);
+    $sent = [];
+    $skipped = [];
+    $failed = [];
+    $logStmt = $pdo->prepare('
+        INSERT IGNORE INTO email_reminder_log (task_id, reminder_day, recipient_email, sent_at)
+        VALUES (:task_id, :reminder_day, :recipient_email, :sent_at)
+    ');
+
+    foreach ($tasks as $task) {
+        $recipientEmail = normalize_email((string)($task['recipientEmail'] ?? ''));
+        if ($recipientEmail === null || !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+            $skipped[] = [
+                'taskId' => (int)$task['taskId'],
+                'taskTitle' => (string)$task['title'],
+                'reason' => 'Student has no valid email address.',
+            ];
+            continue;
+        }
+
+        $subject = build_deadline_email_subject($task);
+        $body = build_deadline_email_body($task);
+
+        if (!$dryRun && !send_tdms_email($recipientEmail, $subject, $body)) {
+            $failed[] = [
+                'taskId' => (int)$task['taskId'],
+                'taskTitle' => (string)$task['title'],
+                'email' => $recipientEmail,
+                'reminderDay' => (int)$task['reminderDay'],
+                'reason' => 'PHP mail() could not send the message. Configure email sending in XAMPP/PHP.',
+            ];
+            continue;
+        }
+
+        if (!$dryRun) {
+            $logStmt->execute([
+                'task_id' => (int)$task['taskId'],
+                'reminder_day' => (int)$task['reminderDay'],
+                'recipient_email' => $recipientEmail,
+                'sent_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $sent[] = [
+            'taskId' => (int)$task['taskId'],
+            'taskTitle' => (string)$task['title'],
+            'email' => $recipientEmail,
+            'reminderDay' => (int)$task['reminderDay'],
+            'dryRun' => $dryRun,
+        ];
+    }
+
+    return [
+        'checked' => count($tasks),
+        'sent' => $sent,
+        'skipped' => $skipped,
+        'failed' => $failed,
+    ];
+}
+
+function maybe_run_deadline_email_reminders(PDO $pdo): void
+{
+    try {
+        run_deadline_email_reminders($pdo, false);
+    } catch (Throwable $error) {
+        error_log('TDMS deadline reminder run failed: ' . $error->getMessage());
+    }
 }
 
 function fetch_student_profile(PDO $pdo, int $studentId): ?array
@@ -566,12 +1212,19 @@ function verify_google_id_token(string $idToken): array
 
 $pdo = tdms_db();
 ensure_admin_security_schema($pdo);
+ensure_student_email_verification_schema($pdo);
+ensure_email_reminder_schema($pdo);
 upgrade_legacy_admin_passwords($pdo);
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $input = json_input();
 
 try {
+    if ($action === 'verify-student-email' && $method === 'GET') {
+        $verified = verify_student_email_token($pdo, trim((string)($_GET['token'] ?? '')));
+        redirect_to_verification_result($verified ? 'success' : 'failed');
+    }
+
     if ($action === 'public-config' && $method === 'GET') {
         respond(['ok' => true, 'config' => public_client_config()]);
     }
@@ -585,52 +1238,68 @@ try {
         $identifier = trim((string)($input['identifier'] ?? ''));
         $secret = trim((string)($input['secret'] ?? ''));
 
-        if ($role === 'staff') {
-            if ($identifier === '' || $secret === '') {
-                respond(['ok' => false, 'message' => 'Username and password are required.'], 422);
-            }
-
-            $admin = find_admin_for_login($pdo, $identifier);
-            if (!$admin) {
-                respond(['ok' => false, 'message' => 'Invalid staff login.'], 422);
-            }
-
-            if (admin_is_locked($admin)) {
-                $lockUntil = strtotime((string)$admin['lock_until']);
-                $formatted = $lockUntil ? date('M j, Y g:i A', $lockUntil) : 'later';
-                respond(['ok' => false, 'message' => "Too many failed login attempts. Try again after {$formatted}."], 423);
-            }
-
-            if (!is_password_hash_string((string)$admin['password_hash']) || !password_verify($secret, (string)$admin['password_hash'])) {
-                register_admin_login_failure($pdo, $admin);
-                respond(['ok' => false, 'message' => 'Invalid staff login.'], 422);
-            }
-
-            reset_admin_login_attempts($pdo, (int)$admin['id']);
-            $admin = fetch_admin_record($pdo, (int)$admin['id']) ?? $admin;
-            $session = login_admin_session($admin);
-            respond(['ok' => true, 'session' => $session]);
+        if ($identifier === '' || $secret === '') {
+            respond(['ok' => false, 'message' => 'Username and password are required.'], 422);
         }
 
-        if ($role === 'student') {
+        $tryStaff = $role === '' || $role === 'staff';
+        $tryStudent = $role === '' || $role === 'student';
+
+        if ($tryStaff) {
+            $admin = find_admin_for_login($pdo, $identifier);
+            if ($admin) {
+                if (admin_is_locked($admin)) {
+                    $lockUntil = strtotime((string)$admin['lock_until']);
+                    $formatted = $lockUntil ? date('M j, Y g:i A', $lockUntil) : 'later';
+                    respond(['ok' => false, 'message' => "Too many failed login attempts. Try again after {$formatted}."], 423);
+                }
+
+                if (!is_password_hash_string((string)$admin['password_hash']) || !password_verify($secret, (string)$admin['password_hash'])) {
+                    register_admin_login_failure($pdo, $admin);
+                    respond(['ok' => false, 'message' => 'Invalid username or password.'], 422);
+                }
+
+                reset_admin_login_attempts($pdo, (int)$admin['id']);
+                $admin = fetch_admin_record($pdo, (int)$admin['id']) ?? $admin;
+                $session = login_admin_session($admin);
+                respond(['ok' => true, 'session' => $session]);
+            }
+
+            if ($role === 'staff') {
+                respond(['ok' => false, 'message' => 'Invalid staff login.'], 422);
+            }
+        }
+
+        if ($tryStudent) {
             $student = find_student_for_login($pdo, $identifier);
             if (!$student) {
-                respond(['ok' => false, 'message' => 'Student login not found.'], 422);
-            }
-
-            if (student_has_column($pdo, 'password_hash') && !empty($student['password_hash'])) {
-                if (!password_verify($secret, (string)$student['password_hash'])) {
-                    respond(['ok' => false, 'message' => 'Invalid student password.'], 422);
+                if ($role === 'student') {
+                    respond(['ok' => false, 'message' => 'Student login not found.'], 422);
                 }
-            } elseif (mb_strtolower((string)$student['full_name']) !== mb_strtolower($secret)) {
-                respond(['ok' => false, 'message' => 'Student login not found.'], 422);
-            }
+            } else {
+                if (student_has_column($pdo, 'password_hash') && !empty($student['password_hash'])) {
+                    if (!password_verify($secret, (string)$student['password_hash'])) {
+                        respond(['ok' => false, 'message' => 'Invalid username or password.'], 422);
+                    }
+                } elseif (mb_strtolower((string)$student['full_name']) !== mb_strtolower($secret)) {
+                    respond(['ok' => false, 'message' => 'Student login not found.'], 422);
+                }
 
-            $session = login_student_session($student);
-            respond(['ok' => true, 'session' => $session]);
+                if (
+                    student_has_column($pdo, 'email_verified_at')
+                    && !empty($student['email'])
+                    && empty($student['email_verified_at'])
+                    && (string)($student['auth_provider'] ?? 'local') !== 'google'
+                ) {
+                    respond(['ok' => false, 'message' => 'Please verify your email before logging in. Check your inbox for the TDMS verification link.'], 403);
+                }
+
+                $session = login_student_session($student);
+                respond(['ok' => true, 'session' => $session]);
+            }
         }
 
-        respond(['ok' => false, 'message' => 'Unsupported role.'], 422);
+        respond(['ok' => false, 'message' => 'Invalid username or password.'], 422);
     }
 
     if ($action === 'register-student' && $method === 'POST') {
@@ -644,6 +1313,10 @@ try {
 
         if ($studentIdentifier === '' || $fullName === '' || $program === '') {
             respond(['ok' => false, 'message' => 'Student ID, full name, and program are required.'], 422);
+        }
+
+        if ($email === null) {
+            respond(['ok' => false, 'message' => 'Email is required so TDMS can verify the student account.'], 422);
         }
 
         if (!preg_match('/^\d{4}-\d{3}-\d{5}$/', $studentIdentifier)) {
@@ -666,27 +1339,33 @@ try {
             respond(['ok' => false, 'message' => 'Student password storage is not ready yet. Add the password_hash column in MySQL first.'], 500);
         }
 
-        if (student_has_column($pdo, 'email') && $email !== null) {
-            $existingStmt = $pdo->prepare('SELECT id FROM students WHERE student_id = :student_id OR email = :email LIMIT 1');
-            $existingStmt->execute([
-                'student_id' => $studentIdentifier,
-                'email' => $email,
-            ]);
-        } else {
-            $existingStmt = $pdo->prepare('SELECT id FROM students WHERE student_id = :student_id LIMIT 1');
-            $existingStmt->execute([
-                'student_id' => $studentIdentifier,
-            ]);
+        if (
+            !student_has_column($pdo, 'email')
+            || !student_has_column($pdo, 'email_verified_at')
+            || !student_has_column($pdo, 'email_verification_token_hash')
+            || !student_has_column($pdo, 'email_verification_expires_at')
+        ) {
+            respond(['ok' => false, 'message' => 'Student email verification columns are not ready yet. Refresh the app and try again.'], 500);
         }
+
+        $existingStmt = $pdo->prepare('SELECT id FROM students WHERE student_id = :student_id OR email = :email LIMIT 1');
+        $existingStmt->execute([
+            'student_id' => $studentIdentifier,
+            'email' => $email,
+        ]);
 
         if ($existingStmt->fetch()) {
             respond(['ok' => false, 'message' => 'A student with that ID or email already exists.'], 422);
         }
 
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+        $pdo->beginTransaction();
 
-        if (student_has_column($pdo, 'email') && student_has_column($pdo, 'auth_provider')) {
-            $stmt = $pdo->prepare('INSERT INTO students (student_id, full_name, program, email, contact, password_hash, auth_provider) VALUES (:student_id, :full_name, :program, :email, :contact, :password_hash, :auth_provider)');
+        if (student_has_column($pdo, 'auth_provider')) {
+            $stmt = $pdo->prepare('
+                INSERT INTO students (student_id, full_name, program, email, contact, password_hash, auth_provider, email_verified_at)
+                VALUES (:student_id, :full_name, :program, :email, :contact, :password_hash, :auth_provider, NULL)
+            ');
             $stmt->execute([
                 'student_id' => $studentIdentifier,
                 'full_name' => $fullName,
@@ -697,12 +1376,16 @@ try {
                 'auth_provider' => 'local',
             ]);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO students (student_id, full_name, program, contact, password_hash) VALUES (:student_id, :full_name, :program, :contact, :password_hash)');
+            $stmt = $pdo->prepare('
+                INSERT INTO students (student_id, full_name, program, email, contact, password_hash, email_verified_at)
+                VALUES (:student_id, :full_name, :program, :email, :contact, :password_hash, NULL)
+            ');
             $stmt->execute([
                 'student_id' => $studentIdentifier,
                 'full_name' => $fullName,
                 'program' => $program,
-                'contact' => $contact !== '' ? $contact : (string)($email ?? ''),
+                'email' => $email,
+                'contact' => $contact,
                 'password_hash' => $passwordHash,
             ]);
         }
@@ -712,8 +1395,22 @@ try {
             throw new RuntimeException('Student registration completed, but the account could not be loaded.');
         }
 
-        $session = login_student_session($student);
-        respond(['ok' => true, 'session' => $session, 'student' => $student]);
+        $verificationToken = create_email_verification_token($pdo, (int)$student['id']);
+        $pdo->commit();
+
+        $verificationUrl = build_student_verification_url($verificationToken);
+        $emailSent = send_student_verification_email($email, $fullName, $verificationToken);
+
+        respond([
+            'ok' => true,
+            'requiresEmailVerification' => true,
+            'student' => $student,
+            'emailDeliveryFailed' => !$emailSent,
+            'verificationUrl' => !$emailSent ? $verificationUrl : null,
+            'message' => $emailSent
+                ? 'Registration received. Please verify your email before logging in.'
+                : 'Account created, but TDMS could not send the verification email on this local machine. Use the verification link below to activate the account.',
+        ]);
     }
 
     if ($action === 'login-google' && $method === 'POST') {
@@ -730,7 +1427,18 @@ try {
         $isNewStudent = false;
 
         if ($student) {
-            $updateStmt = $pdo->prepare('UPDATE students SET full_name = :full_name, email = :email, google_sub = :google_sub, auth_provider = :auth_provider, contact = CASE WHEN contact = "" THEN :contact ELSE contact END WHERE id = :id');
+            $updateStmt = $pdo->prepare('
+                UPDATE students
+                SET full_name = :full_name,
+                    email = :email,
+                    google_sub = :google_sub,
+                    auth_provider = :auth_provider,
+                    email_verified_at = COALESCE(email_verified_at, NOW()),
+                    email_verification_token_hash = NULL,
+                    email_verification_expires_at = NULL,
+                    contact = CASE WHEN contact = "" THEN :contact ELSE contact END
+                WHERE id = :id
+            ');
             $updateStmt->execute([
                 'full_name' => $googleUser['name'],
                 'email' => $googleUser['email'],
@@ -743,7 +1451,10 @@ try {
         } else {
             $isNewStudent = true;
             $generatedCode = generate_student_identifier($pdo);
-            $insertStmt = $pdo->prepare('INSERT INTO students (student_id, full_name, program, email, contact, auth_provider, google_sub) VALUES (:student_id, :full_name, :program, :email, :contact, :auth_provider, :google_sub)');
+            $insertStmt = $pdo->prepare('
+                INSERT INTO students (student_id, full_name, program, email, contact, auth_provider, google_sub, email_verified_at)
+                VALUES (:student_id, :full_name, :program, :email, :contact, :auth_provider, :google_sub, NOW())
+            ');
             $insertStmt->execute([
                 'student_id' => $generatedCode,
                 'full_name' => $googleUser['name'],
@@ -887,18 +1598,21 @@ try {
     if ($action === 'admin-data' && $method === 'GET') {
         $session = require_login('staff');
         $adminId = (int)($session['adminId'] ?? 0);
+        maybe_run_deadline_email_reminders($pdo);
         respond([
             'ok' => true,
             'session' => current_session(),
             'account' => $adminId > 0 ? fetch_admin_profile($pdo, $adminId) : null,
             'students' => fetch_students($pdo),
             'tasks' => fetch_tasks($pdo),
+            'announcements' => fetch_announcements($pdo),
         ]);
     }
 
     if ($action === 'student-data' && $method === 'GET') {
         $session = require_login('student');
         $studentId = (int)$session['studentId'];
+        maybe_run_deadline_email_reminders($pdo);
 
         respond([
             'ok' => true,
@@ -906,27 +1620,127 @@ try {
             'student' => fetch_student_profile($pdo, $studentId),
             'subjects' => fetch_subjects($pdo, $studentId),
             'tasks' => fetch_tasks($pdo, $studentId),
+            'announcements' => fetch_announcements($pdo),
+        ]);
+    }
+
+    if ($action === 'send-deadline-email-reminders' && ($method === 'POST' || $method === 'GET')) {
+        authorize_email_reminder_run($input);
+        $dryRunValue = $input['dryRun'] ?? ($_GET['dryRun'] ?? false);
+        $dryRun = filter_var($dryRunValue, FILTER_VALIDATE_BOOLEAN);
+        $result = run_deadline_email_reminders($pdo, $dryRun);
+
+        respond([
+            'ok' => true,
+            'dryRun' => $dryRun,
+            'message' => $dryRun
+                ? 'Deadline email reminders were previewed only.'
+                : 'Deadline email reminders were processed.',
+            'result' => $result,
         ]);
     }
 
     if ($action === 'add-admin-reminder' && $method === 'POST') {
         require_staff_password_updated();
+        $targetMode = trim((string)($input['targetMode'] ?? 'student'));
+        $yearLevel = trim((string)($input['yearLevel'] ?? ''));
+        $title = trim((string)($input['title'] ?? ''));
+        $dueDate = trim((string)($input['dueDate'] ?? ''));
+        $notes = trim((string)($input['notes'] ?? ''));
+        $category = trim((string)($input['category'] ?? 'Missing Requirement'));
+        $priority = trim((string)($input['priority'] ?? 'High'));
+        $subjectName = trim((string)($input['subject'] ?? ''));
+
+        if ($title === '' || $dueDate === '') {
+            respond(['ok' => false, 'message' => 'Requirement and due date are required.'], 422);
+        }
+
+        if ($targetMode === 'year') {
+            if ($yearLevel === '') {
+                respond(['ok' => false, 'message' => 'Please select a year level.'], 422);
+            }
+
+            $studentIds = fetch_student_ids_by_year($pdo, $yearLevel);
+            if (!$studentIds) {
+                respond(['ok' => false, 'message' => 'No students were found for that year level yet.'], 422);
+            }
+        } else {
+            $studentId = (int)($input['studentId'] ?? 0);
+            if ($studentId <= 0) {
+                respond(['ok' => false, 'message' => 'Please select a student.'], 422);
+            }
+            $studentIds = [$studentId];
+        }
 
         $stmt = $pdo->prepare('
             INSERT INTO tasks (student_id, subject_name, title, category, priority, due_date, notes, status, source)
             VALUES (:student_id, :subject_name, :title, :category, :priority, :due_date, :notes, "Pending", "admin")
         ');
+
+        foreach ($studentIds as $studentId) {
+            $stmt->execute([
+                'student_id' => (int)$studentId,
+                'subject_name' => $subjectName,
+                'title' => $title,
+                'category' => $category,
+                'priority' => $priority,
+                'due_date' => $dueDate,
+                'notes' => $notes,
+            ]);
+        }
+
+        respond([
+            'ok' => true,
+            'count' => count($studentIds),
+            'message' => $targetMode === 'year'
+                ? 'Reminder sent to all students in the selected year.'
+                : 'Reminder saved.',
+        ]);
+    }
+
+    if ($action === 'add-announcement' && $method === 'POST') {
+        $session = require_staff_password_updated();
+        $adminId = (int)($session['adminId'] ?? 0);
+        $title = trim((string)($input['title'] ?? ''));
+        $message = trim((string)($input['message'] ?? ''));
+        $eventDate = trim((string)($input['eventDate'] ?? ''));
+
+        if ($title === '' || $message === '' || $eventDate === '') {
+            respond(['ok' => false, 'message' => 'Please complete the announcement form.'], 422);
+        }
+
+        $stmt = $pdo->prepare('
+            INSERT INTO announcements (title, message, event_date, created_by_admin_id)
+            VALUES (:title, :message, :event_date, :created_by_admin_id)
+        ');
         $stmt->execute([
-            'student_id' => (int)$input['studentId'],
-            'subject_name' => trim((string)($input['subject'] ?? '')),
-            'title' => trim((string)($input['title'] ?? '')),
-            'category' => trim((string)($input['category'] ?? 'Missing Requirement')),
-            'priority' => trim((string)($input['priority'] ?? 'High')),
-            'due_date' => trim((string)($input['dueDate'] ?? '')),
-            'notes' => trim((string)($input['notes'] ?? '')),
+            'title' => $title,
+            'message' => $message,
+            'event_date' => $eventDate,
+            'created_by_admin_id' => $adminId > 0 ? $adminId : null,
         ]);
 
-        respond(['ok' => true]);
+        $emailResult = send_announcement_emails($pdo, [
+            'title' => $title,
+            'message' => $message,
+            'eventDate' => $eventDate,
+            'createdByName' => (string)($session['userName'] ?? 'Admin'),
+        ]);
+
+        $sentCount = count($emailResult['sent']);
+        $failedCount = count($emailResult['failed']);
+        $skippedCount = count($emailResult['skipped']);
+        $messageText = "Announcement posted. Email sent to {$sentCount} student(s).";
+
+        if ($failedCount > 0 || $skippedCount > 0) {
+            $messageText .= " {$failedCount} failed, {$skippedCount} skipped.";
+        }
+
+        respond([
+            'ok' => true,
+            'message' => $messageText,
+            'emailResult' => $emailResult,
+        ]);
     }
 
     if ($action === 'add-student-subject' && $method === 'POST') {
